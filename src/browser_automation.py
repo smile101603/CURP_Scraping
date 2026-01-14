@@ -148,6 +148,23 @@ class BrowserAutomation:
         delay = random.uniform(self.min_delay, self.max_delay)
         time.sleep(delay)
     
+    def _human_like_delay(self, min_seconds: float = 0.2, max_seconds: float = 0.8):
+        """
+        Apply human-like variable delay (simulates thinking/reading time).
+        
+        Args:
+            min_seconds: Minimum delay in seconds
+            max_seconds: Maximum delay in seconds
+        """
+        delay = random.uniform(min_seconds, max_seconds)
+        time.sleep(delay)
+    
+    def _human_like_typing_delay(self):
+        """Apply delay that simulates human typing speed."""
+        # Humans type at different speeds, add variable delay
+        delay = random.uniform(0.15, 0.4)
+        time.sleep(delay)
+    
     def _close_modal_if_present(self):
         """Close the error modal if it appears (no match found)."""
         if not self.page:
@@ -158,7 +175,7 @@ class BrowserAutomation:
             close_button = self.page.query_selector('button[data-dismiss="modal"]')
             if close_button:
                 close_button.click()
-                time.sleep(1.0)  # Modal closing delay
+                time.sleep(0.6)  # Fixed 0.6s delay after closing modal (as specified)
         except:
             pass
     
@@ -247,39 +264,96 @@ class BrowserAutomation:
             # If clearing fails, continue anyway - form submission will overwrite
             pass
     
-    def _wait_for_search_completion(self, timeout: float = 6.0) -> bool:
+    def _wait_for_search_completion(self, timeout: float = 20.0) -> bool:
         """
         Wait for search to complete (results or error modal appear).
+        Uses longer timeout to handle slow bot detection responses.
         
         Args:
-            timeout: Maximum time to wait in seconds (default 6.0)
+            timeout: Maximum time to wait in seconds (default 20.0)
         
         Returns:
             True if search completed, False if timeout
         """
         start_time = time.time()
+        last_check_time = start_time
+        consecutive_no_change = 0
         
         while (time.time() - start_time) < timeout:
             try:
-                # Check for results or error modal
-                has_result = self.page.locator('#dwnldLnk, .panel-body table, .panel-body').count() > 0
-                has_error = self.page.locator('button[data-dismiss="modal"]').count() > 0
+                # Get page content to check for both result types
+                content = self.page.content()
+                content_lower = content.lower()
                 
-                if has_result or has_error:
-                    # Wait a bit more to ensure content is fully loaded
-                    time.sleep(0.3)
-                    # Check for loading indicators
+                # Check for match found result (CURP data page)
+                has_match_result = (
+                    '#dwnldLnk' in content or 
+                    'dwnldLnk' in content or 
+                    'Descarga del CURP' in content or
+                    'Datos del solicitante' in content or
+                    'id="download"' in content or
+                    'Descargar pdf' in content
+                )
+                
+                # Check for no match modal (error modal with specific structure)
+                has_no_match_modal = (
+                    'Aviso importante' in content or
+                    'warningMenssage' in content or
+                    'id="warningMenssage"' in content or
+                    'Los datos ingresados no son correctos' in content or
+                    self.page.locator('button[data-dismiss="modal"]').count() > 0
+                )
+                
+                if has_match_result or has_no_match_modal:
+                    # Wait longer to ensure content is fully loaded (site may be slow)
+                    time.sleep(1.0)
+                    
+                    # Re-check content after wait
                     content = self.page.content()
                     content_lower = content.lower()
-                    if 'cargando' not in content_lower and 'loading' not in content_lower:
-                        # Check for spinners or loaders
-                        has_spinner = self.page.locator('.spinner, .loader, .loading, [class*="loading"]').count() > 0
-                        if not has_spinner:
-                            return True
+                    
+                    # Check for various loading indicators
+                    has_loading_text = (
+                        'cargando' in content_lower or 
+                        'loading' in content_lower or
+                        'procesando' in content_lower or
+                        'buscando' in content_lower
+                    )
+                    
+                    # Check for spinners or loaders
+                    has_spinner = self.page.locator('.spinner, .loader, .loading, [class*="loading"], [class*="spinner"]').count() > 0
+                    
+                    if not has_loading_text and not has_spinner:
+                        # Verify we still have the result after waiting
+                        if has_match_result:
+                            # Double-check match result is still present
+                            still_has_match = (
+                                '#dwnldLnk' in content or 
+                                'Descarga del CURP' in content or
+                                'Datos del solicitante' in content
+                            )
+                            if still_has_match:
+                                # Additional wait to ensure DOM is stable
+                                time.sleep(0.5)
+                                return True
+                        elif has_no_match_modal:
+                            # Verify modal is still present
+                            still_has_modal = (
+                                'Aviso importante' in content or
+                                'warningMenssage' in content or
+                                self.page.locator('button[data-dismiss="modal"]').count() > 0
+                            )
+                            if still_has_modal:
+                                time.sleep(0.5)
+                                return True
                 
-                time.sleep(0.1)  # Small check interval
-            except Exception:
-                pass
+                # Use variable check interval (more human-like)
+                check_interval = random.uniform(0.3, 0.8)
+                time.sleep(check_interval)
+                
+            except Exception as e:
+                # If there's an error, wait a bit longer before retrying
+                time.sleep(0.5)
         
         return False  # Timeout
     
@@ -421,48 +495,52 @@ class BrowserAutomation:
             # Don't navigate if we're already on the form page
             self._ensure_form_ready()
             
-            # Fill form fields directly (fill() will replace existing values, no need to clear)
+            # Fill form fields with human-like timing (simulates real user behavior)
             # Fill form fields using the actual IDs from the website
             
-            # First name (nombres)
+            # First name (nombres) - humans type at variable speeds
             self.page.fill('input#nombre', first_name, timeout=5000)
-            time.sleep(0.1)  # Small delay between fields
+            self._human_like_typing_delay()
+            self._human_like_delay(0.2, 0.5)  # Pause to "read" or "think"
             
             # First last name (primerApellido)
             self.page.fill('input#primerApellido', last_name_1, timeout=5000)
-            time.sleep(0.1)  # Small delay between fields
+            self._human_like_typing_delay()
+            self._human_like_delay(0.2, 0.5)
             
             # Second last name (segundoApellido)
             self.page.fill('input#segundoApellido', last_name_2, timeout=5000)
-            time.sleep(0.1)  # Small delay between fields
+            self._human_like_typing_delay()
+            self._human_like_delay(0.3, 0.7)  # Longer pause before dropdowns
             
-            # Day - format as "01", "02", etc.
+            # Day - format as "01", "02", etc. (humans take time to select from dropdown)
             day_str = str(day).zfill(2)
             self.page.select_option('select#diaNacimiento', day_str, timeout=5000)
-            time.sleep(0.1)  # Small delay between fields
+            self._human_like_delay(0.4, 0.8)  # Dropdown selection takes longer
             
             # Month - format as "01", "02", etc.
             month_str = str(month).zfill(2)
             self.page.select_option('select#mesNacimiento', month_str, timeout=5000)
-            time.sleep(0.1)  # Small delay between fields
+            self._human_like_delay(0.4, 0.8)
             
-            # Year
+            # Year (humans type numbers at variable speeds)
             year_str = str(year)
             self.page.fill('input#selectedYear', year_str, timeout=5000)
-            time.sleep(0.1)  # Small delay between fields
+            self._human_like_typing_delay()
+            self._human_like_delay(0.3, 0.6)
             
             # Gender (sexo) - values: "H", "M", or "X"
             gender_value = "H" if gender.upper() == "H" else "M"
             self.page.select_option('select#sexo', gender_value, timeout=5000)
-            time.sleep(0.1)  # Small delay between fields
+            self._human_like_delay(0.3, 0.7)
             
-            # State (claveEntidad) - convert state name to code
+            # State (claveEntidad) - convert state name to code (longer pause for state selection)
             state_code = get_state_code(state)
             self.page.select_option('select#claveEntidad', state_code, timeout=5000)
-            time.sleep(0.2)  # Final delay before submission (total ~1 second for form filling)
+            self._human_like_delay(0.5, 1.2)  # Longer pause - humans review before submitting
             
-            # Submit form - for Ember.js forms, we need to click the submit button, not use form.submit()
-            time.sleep(1.0)  # Form submission delay
+            # Submit form - humans pause before clicking submit button
+            self._human_like_delay(0.8, 1.5)  # "Review" the form before submitting
             submitted = False
             
             try:
@@ -472,7 +550,7 @@ class BrowserAutomation:
                 if submit_button.count() > 0:
                     submit_button.click()
                     submitted = True
-                    time.sleep(1.0)  # Form submission delay
+                    self._human_like_delay(1.0, 2.0)  # Variable delay after clicking
             except Exception as e:
                 pass
             
@@ -549,18 +627,18 @@ class BrowserAutomation:
                         self.page.select_option('select#claveEntidad', state_code, timeout=5000)
                         time.sleep(0.2)
                         # Resubmit
-                        time.sleep(1.0)
+                        self._human_like_delay(1.0, 2.0)
                         try:
                             submit_button = self.page.locator('#tab-02 form button[type="submit"]').first
                             if submit_button.count() > 0:
                                 submit_button.click()
-                                time.sleep(1.0)
+                                self._human_like_delay(1.0, 2.0)
                             else:
                                 self.page.keyboard.press('Enter')
-                                time.sleep(1.0)
+                                self._human_like_delay(1.0, 2.0)
                         except:
                             self.page.keyboard.press('Enter')
-                            time.sleep(1.0)
+                            self._human_like_delay(1.0, 2.0)
                         search_start_time = time.time()  # Reset start time
                     else:
                         print("Recovery failed")
@@ -568,12 +646,13 @@ class BrowserAutomation:
                 else:
                     break  # No unrecognized errors, proceed with search
             
-            # Wait for search completion with 6-second timeout
-            search_completed = self._wait_for_search_completion(timeout=6.0)
+            # Wait for search completion with 20 second timeout
+            # If no result appears within 20s, reload and proceed to next input
+            search_completed = self._wait_for_search_completion(timeout=20.0)
             
             if not search_completed:
                 # Timeout occurred - reload page and move to next input
-                print(f"Search timeout after 6 seconds, reloading page and moving to next input...")
+                print(f"Search timeout after 20 seconds, reloading page and moving to next input...")
                 try:
                     self.page.reload(wait_until='load', timeout=90000)
                     time.sleep(3.0)  # Page load wait
@@ -597,33 +676,73 @@ class BrowserAutomation:
                     return ""
             
             # Search completed - verify page stability and get results
-            time.sleep(0.2)  # Small delay to ensure all DOM updates are complete
+            # Add human-like pause to "read" the results
+            self._human_like_delay(0.5, 1.0)  # Humans pause to read results
             
             # Check for results FIRST before closing modal
             # Get page content to check for matches
             content = self.page.content()
             
-            # Check if we have results by looking for key indicators
-            has_results = (
+            # Check for match found (CURP result page)
+            # Look for specific indicators from the match result HTML
+            has_match_result = (
                 '#dwnldLnk' in content or 
                 'dwnldLnk' in content or 
                 'Descarga del CURP' in content or
-                'Datos del solicitante' in content
+                'Datos del solicitante' in content or
+                'id="download"' in content or
+                'Descargar pdf' in content
             )
             
-            if not has_results:
-                # No results, so close modal if present
+            # Check for no match modal (error modal)
+            # Look for the specific modal structure
+            has_no_match_modal = (
+                'Aviso importante' in content or
+                'warningMenssage' in content or
+                'id="warningMenssage"' in content or
+                'Los datos ingresados no son correctos' in content
+            )
+            
+            if has_match_result:
+                # Match found! Save the result (content is already captured)
+                # Reload page and proceed to next input
+                print("Match found! Reloading page for next search...")
+                try:
+                    self.page.reload(wait_until='load', timeout=90000)
+                    time.sleep(3.0)  # Page load wait
+                    
+                    # Click on "Datos Personales" tab
+                    try:
+                        self.page.wait_for_selector('a[href="#tab-02"]', timeout=10000)
+                        tab = self.page.locator('a[href="#tab-02"]').first
+                        tab_class = tab.get_attribute('class') or ''
+                        if 'active' not in tab_class:
+                            tab.click()
+                            time.sleep(0.7)  # Tab switch delay
+                    except:
+                        pass
+                    
+                    self.form_ready = True
+                    # Return content with match result
+                    return content
+                except Exception as e:
+                    print(f"Error during reload after match: {e}")
+                    # Return content anyway so match can be processed
+                    return content
+                    
+            elif has_no_match_modal:
+                # No match found - close modal in 0.6s and proceed to next input
                 self._close_modal_if_present()
-                # Re-get content after modal closes
-                time.sleep(1.0)  # Modal closing delay
-                content = self.page.content()
-                # Don't navigate - we're already on the form page, just continue
-                # Set flag to indicate we don't need navigation next time
+                # Content already updated, form is ready for next input
                 self.form_ready = True
+                return content
             else:
-                # Match found! Navigate back to form for next search
-                # This ensures clean state for next search
-                self.form_ready = False  # Force navigation next time
+                # Neither result type detected - this shouldn't happen if wait worked correctly
+                # But handle it anyway by closing any modal and proceeding
+                print("Warning: Neither match nor no-match modal detected, closing any modal and proceeding...")
+                self._close_modal_if_present()
+                self.form_ready = True
+                return content
             
             # Increment search count
             self.search_count += 1
