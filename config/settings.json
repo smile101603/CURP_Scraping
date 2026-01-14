@@ -10,9 +10,9 @@
   "pause_every_n": 75,
   "pause_duration": 15,
   "browser": {
-    "headless": false
+    "headless": true
   },
-  "num_workers": 6,
+  "num_workers": 11,
   "output_dir": "./data/results",
   "input_dir": "./data",
   "checkpoint_dir": "./checkpoints",
@@ -27,4 +27,5 @@
     "ssl_key_path": ""
   }
 }
+
 
