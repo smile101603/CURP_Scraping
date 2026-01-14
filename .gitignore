@@ -40,6 +40,13 @@ checkpoints/
 # Config (if contains sensitive data)
 # config/settings.json
 
+# Credentials - NEVER commit these
+credentials/
+*.json
+!package.json
+!package-lock.json
+!tsconfig.json
+
 # OS
 .DS_Store
 Thumbs.db
