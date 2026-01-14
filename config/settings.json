@@ -16,6 +16,21 @@
   "output_dir": "./data/results",
   "input_dir": "./data",
   "checkpoint_dir": "./checkpoints",
+  "vps": {
+    "enabled": true,
+    "vps_ips": [
+      "84.247.138.193",
+      "84.247.138.186"
+    ],
+    "current_vps_index": 0
+  },
+  "google_sheets": {
+    "enabled": true,
+    "spreadsheet_id": "1z6I2s3vBLVEuzQDZO1ejd_JswkhJV2c6UyzBAPOdkh8",
+    "credentials_file": "./credentials/google-sheets-credentials.json",
+    "create_sheet_per_job": true,
+    "append_results": true
+  },
   "api": {
     "port": 5000,
     "host": "0.0.0.0",

@@ -12,6 +12,8 @@ from excel_handler import ExcelHandler
 from combination_generator import CombinationGenerator
 from checkpoint_manager import CheckpointManager
 from parallel_worker import ParallelWorker
+from work_distributor import WorkDistributor
+from google_sheets_writer import GoogleSheetsWriter
 from api.search_manager import search_manager
 from api.models import JobStatus, JobProgress
 from api.websocket import emit_progress_update, emit_job_complete, emit_job_error
@@ -81,6 +83,35 @@ def run_search(job_id: str, input_file_path: str, year_start: int, year_end: int
         checkpoint_dir = config.get('checkpoint_dir', './checkpoints')
         num_workers = config.get('num_workers', 5)
         
+        # Get VPS configuration
+        vps_config = config.get('vps', {})
+        vps_enabled = vps_config.get('enabled', False)
+        vps_ips = vps_config.get('vps_ips', [])
+        current_vps_index = vps_config.get('current_vps_index', 0)
+        
+        # Initialize work distributor if VPS is enabled
+        work_distributor = None
+        if vps_enabled and len(vps_ips) >= 2:
+            work_distributor = WorkDistributor(vps_ips, current_vps_index)
+            logger.info(f"VPS distribution enabled. Current VPS index: {current_vps_index}, IP: {vps_ips[current_vps_index] if current_vps_index < len(vps_ips) else 'N/A'}")
+        
+        # Get Google Sheets configuration
+        sheets_config = config.get('google_sheets', {})
+        sheets_enabled = sheets_config.get('enabled', False)
+        sheets_writer = None
+        if sheets_enabled:
+            try:
+                spreadsheet_id = sheets_config.get('spreadsheet_id')
+                credentials_file = sheets_config.get('credentials_file')
+                if spreadsheet_id and credentials_file:
+                    sheets_writer = GoogleSheetsWriter(spreadsheet_id, credentials_file)
+                    logger.info(f"Google Sheets integration enabled. Spreadsheet ID: {spreadsheet_id}")
+                else:
+                    logger.warning("Google Sheets enabled but missing spreadsheet_id or credentials_file")
+            except Exception as e:
+                logger.error(f"Failed to initialize Google Sheets writer: {e}")
+                sheets_writer = None
+        
         # Initialize components
         excel_handler = ExcelHandler(output_dir=output_dir)
         checkpoint_manager = CheckpointManager(checkpoint_dir=checkpoint_dir)
@@ -125,6 +156,20 @@ def run_search(job_id: str, input_file_path: str, year_start: int, year_end: int
             output_dir=output_dir
         )
         
+        # Get work assignments if VPS distribution is enabled
+        work_assignments = {}
+        if work_distributor:
+            assignments = work_distributor.distribute_work(len(input_df), year_start, year_end)
+            for assignment in assignments:
+                person_idx = assignment['person_index']
+                work_assignments[person_idx] = {
+                    'year_start': assignment['year_start'],
+                    'year_end': assignment['year_end']
+                }
+            logger.info(f"VPS {current_vps_index} assigned {len(assignments)} person(s) to process")
+            for assignment in assignments:
+                logger.info(f"  Person {assignment['person_index']}: years {assignment['year_start']}-{assignment['year_end']}")
+        
         # Process each person
         for idx, row in input_df.iterrows():
             person_id = row['person_id']
@@ -141,8 +186,26 @@ def run_search(job_id: str, input_file_path: str, year_start: int, year_end: int
                 logger.info(f"Job {job_id} was cancelled")
                 return
             
-            # Create combination generator
-            combination_generator = CombinationGenerator(year_start, year_end)
+            # Determine year range for this person (VPS distribution or full range)
+            if work_distributor and idx in work_assignments:
+                # Use assigned year range for this person
+                assigned_years = work_assignments[idx]
+                person_year_start = assigned_years['year_start']
+                person_year_end = assigned_years['year_end']
+                logger.info(f"Person {person_id} assigned to VPS {current_vps_index}: years {person_year_start}-{person_year_end}")
+            else:
+                # No VPS distribution or person not assigned to this VPS
+                if work_distributor:
+                    # This person is not assigned to this VPS, skip
+                    logger.info(f"Person {person_id} not assigned to VPS {current_vps_index}, skipping...")
+                    continue
+                else:
+                    # No VPS distribution, use full range
+                    person_year_start = year_start
+                    person_year_end = year_end
+            
+            # Create combination generator with assigned year range
+            combination_generator = CombinationGenerator(person_year_start, person_year_end)
             total_combinations = combination_generator.get_total_count()
             
             logger.info(f"Processing person {person_id}: {person_name}")
@@ -242,16 +305,58 @@ def run_search(job_id: str, input_file_path: str, year_start: int, year_end: int
         
         result_file_path = str(Path(output_dir) / output_filename)
         
+        # Write to Google Sheets if enabled
+        sheets_url = None
+        if sheets_writer:
+            try:
+                create_sheet_per_job = sheets_config.get('create_sheet_per_job', True)
+                append_results = sheets_config.get('append_results', True)
+                
+                if create_sheet_per_job:
+                    # Create new sheet for this job
+                    job_name = f"Job_{job_id}_{timestamp}"
+                    worksheet = sheets_writer.create_sheet_for_job(job_id, job_name)
+                    
+                    if append_results:
+                        # Append results (for multi-VPS scenarios)
+                        sheets_writer.append_results(worksheet, all_results)
+                    else:
+                        # Write all results (overwrite)
+                        sheets_writer.write_results(worksheet, all_results, summary_data, job_id, current_vps_index if vps_enabled else None)
+                    
+                    sheets_url = sheets_writer.get_sheet_url(worksheet)
+                    logger.info(f"Results written to Google Sheets: {sheets_url}")
+                else:
+                    # Use first sheet or default sheet
+                    worksheet = sheets_writer.spreadsheet.sheet1
+                    if append_results:
+                        sheets_writer.append_results(worksheet, all_results)
+                    else:
+                        sheets_writer.write_results(worksheet, all_results, summary_data, job_id, current_vps_index if vps_enabled else None)
+                    sheets_url = sheets_writer.get_sheet_url(worksheet)
+                    logger.info(f"Results written to Google Sheets: {sheets_url}")
+                    
+            except Exception as e:
+                logger.error(f"Error writing to Google Sheets: {e}", exc_info=True)
+                # Don't fail the job if Sheets write fails
+                logger.warning("Continuing despite Google Sheets write error")
+        
         # Update job with result file
         search_manager.set_job_result(job_id, result_file_path)
         search_manager.update_job_status(job_id, JobStatus.COMPLETED)
         
-        # Emit completion
-        emit_job_complete(job_id, result_file_path)
+        # Emit completion (include Sheets URL if available)
+        completion_data = {
+            'result_file': result_file_path,
+            'sheets_url': sheets_url
+        }
+        emit_job_complete(job_id, completion_data)
         
         # Clear checkpoint on successful completion
         checkpoint_manager.clear_checkpoint()
         logger.info(f"Search completed successfully for job {job_id}")
+        if sheets_url:
+            logger.info(f"Google Sheets URL: {sheets_url}")
     
     except Exception as e:
         logger.error(f"Error in search job {job_id}: {e}", exc_info=True)

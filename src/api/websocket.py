@@ -80,18 +80,30 @@ def emit_progress_update(job_id: str, progress_data: dict):
         logger.error(f"Error emitting progress update: {e}")
 
 
-def emit_job_complete(job_id: str, result_file_path: str = None):
+def emit_job_complete(job_id: str, result_data=None):
     """
     Emit job completion event.
     
     Args:
         job_id: Job ID
-        result_file_path: Path to result file
+        result_data: Can be a string (result_file_path) or dict with result_file and sheets_url
     """
     try:
+        # Handle both string (backward compatibility) and dict formats
+        if isinstance(result_data, str):
+            result_file_path = result_data
+            sheets_url = None
+        elif isinstance(result_data, dict):
+            result_file_path = result_data.get('result_file')
+            sheets_url = result_data.get('sheets_url')
+        else:
+            result_file_path = None
+            sheets_url = None
+        
         socketio.emit('job_complete', {
             'job_id': job_id,
-            'result_file_path': result_file_path
+            'result_file_path': result_file_path,
+            'sheets_url': sheets_url
         }, room=f'job_{job_id}')
     except Exception as e:
         logger.error(f"Error emitting job complete: {e}")
