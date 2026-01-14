@@ -68,7 +68,7 @@ class BrowserAutomation:
                 # Use 'load' instead of 'networkidle' for faster loading
                 # Increase timeout to 90 seconds
                 self.page.goto(self.url, wait_until='load', timeout=90000)
-                time.sleep(2)  # Page load wait
+                time.sleep(3.0)  # Page load wait
                 
                 # Click on "Datos Personales" tab to access the form
                 try:
@@ -158,7 +158,7 @@ class BrowserAutomation:
             close_button = self.page.query_selector('button[data-dismiss="modal"]')
             if close_button:
                 close_button.click()
-                time.sleep(0.2)  # Reduced from 0.5 seconds
+                time.sleep(1.0)  # Modal closing delay
         except:
             pass
     
@@ -192,7 +192,7 @@ class BrowserAutomation:
             if needs_navigation:
                 # Navigate back to form (only when necessary)
                 self.page.goto(self.url, wait_until='load', timeout=90000)
-                time.sleep(2)  # Page load wait
+                time.sleep(3.0)  # Page load wait
                 
                 # Click on "Datos Personales" tab to access the form
                 try:
@@ -247,6 +247,154 @@ class BrowserAutomation:
             # If clearing fails, continue anyway - form submission will overwrite
             pass
     
+    def _wait_for_search_completion(self, timeout: float = 6.0) -> bool:
+        """
+        Wait for search to complete (results or error modal appear).
+        
+        Args:
+            timeout: Maximum time to wait in seconds (default 6.0)
+        
+        Returns:
+            True if search completed, False if timeout
+        """
+        start_time = time.time()
+        
+        while (time.time() - start_time) < timeout:
+            try:
+                # Check for results or error modal
+                has_result = self.page.locator('#dwnldLnk, .panel-body table, .panel-body').count() > 0
+                has_error = self.page.locator('button[data-dismiss="modal"]').count() > 0
+                
+                if has_result or has_error:
+                    # Wait a bit more to ensure content is fully loaded
+                    time.sleep(0.3)
+                    # Check for loading indicators
+                    content = self.page.content()
+                    content_lower = content.lower()
+                    if 'cargando' not in content_lower and 'loading' not in content_lower:
+                        # Check for spinners or loaders
+                        has_spinner = self.page.locator('.spinner, .loader, .loading, [class*="loading"]').count() > 0
+                        if not has_spinner:
+                            return True
+                
+                time.sleep(0.1)  # Small check interval
+            except Exception:
+                pass
+        
+        return False  # Timeout
+    
+    def _detect_unrecognized_errors(self) -> bool:
+        """
+        Detect unrecognized error messages (not the standard "no match" modal).
+        
+        Returns:
+            True if unrecognized error is detected, False otherwise
+        """
+        if not self.page:
+            return False
+        
+        try:
+            content = self.page.content()
+            content_lower = content.lower()
+            
+            # Known errors that are handled normally (not unrecognized)
+            known_error_patterns = [
+                'aviso importante',
+                'los datos ingresados no son correctos',
+                'warningmenssage'
+            ]
+            
+            # Check for known errors - these are NOT unrecognized
+            has_known_error = any(pattern in content_lower for pattern in known_error_patterns)
+            
+            # Unrecognized error patterns
+            unrecognized_patterns = [
+                'error 500',
+                'error 503',
+                'error 404',
+                'internal server error',
+                'service unavailable',
+                'network error',
+                'timeout',
+                'connection refused',
+                'javascript error',
+                'script error',
+                'uncaught exception',
+                'failed to load',
+                'networkerror',
+                'syntaxerror'
+            ]
+            
+            # Check for unrecognized errors
+            has_unrecognized = any(pattern in content_lower for pattern in unrecognized_patterns)
+            
+            # Also check for JavaScript console errors
+            try:
+                console_errors = self.page.evaluate("""
+                    () => {
+                        if (window.errors && window.errors.length > 0) {
+                            return true;
+                        }
+                        return false;
+                    }
+                """)
+                if console_errors:
+                    has_unrecognized = True
+            except:
+                pass
+            
+            # Check for page load failures
+            try:
+                # Check if page is in error state
+                page_title = self.page.title()
+                if 'error' in page_title.lower() or 'not found' in page_title.lower():
+                    has_unrecognized = True
+            except:
+                pass
+            
+            # Return True only if we have unrecognized errors AND not known errors
+            return has_unrecognized and not has_known_error
+            
+        except Exception:
+            return False
+    
+    def _recover_from_error(self) -> bool:
+        """
+        Recover from error by reloading the page and re-initializing the form.
+        
+        Returns:
+            True if recovery successful, False otherwise
+        """
+        if not self.page:
+            return False
+        
+        try:
+            # Reload the page
+            self.page.reload(wait_until='load', timeout=90000)
+            time.sleep(3.0)  # Page load wait
+            
+            # Click on "Datos Personales" tab to access the form
+            try:
+                self.page.wait_for_selector('a[href="#tab-02"]', timeout=10000)
+                tab = self.page.locator('a[href="#tab-02"]').first
+                tab_class = tab.get_attribute('class') or ''
+                if 'active' not in tab_class:
+                    tab.click()
+                    time.sleep(0.7)  # Tab switch delay
+            except Exception as e:
+                print(f"Warning: Could not click 'Datos Personales' tab during recovery: {e}")
+                return False
+            
+            # Wait for form fields to be available
+            self.page.wait_for_selector('input#nombre', timeout=5000)
+            self.form_ready = True
+            
+            return True
+            
+        except Exception as e:
+            print(f"Error during recovery: {e}")
+            return False
+    
     def search_curp(self, first_name: str, last_name_1: str, last_name_2: str,
                    gender: str, day: int, month: int, state: str, year: int) -> str:
         """
@@ -278,35 +426,43 @@ class BrowserAutomation:
             
             # First name (nombres)
             self.page.fill('input#nombre', first_name, timeout=5000)
+            time.sleep(0.1)  # Small delay between fields
             
             # First last name (primerApellido)
             self.page.fill('input#primerApellido', last_name_1, timeout=5000)
+            time.sleep(0.1)  # Small delay between fields
             
             # Second last name (segundoApellido)
             self.page.fill('input#segundoApellido', last_name_2, timeout=5000)
+            time.sleep(0.1)  # Small delay between fields
             
             # Day - format as "01", "02", etc.
             day_str = str(day).zfill(2)
             self.page.select_option('select#diaNacimiento', day_str, timeout=5000)
+            time.sleep(0.1)  # Small delay between fields
             
             # Month - format as "01", "02", etc.
             month_str = str(month).zfill(2)
             self.page.select_option('select#mesNacimiento', month_str, timeout=5000)
+            time.sleep(0.1)  # Small delay between fields
             
             # Year
             year_str = str(year)
             self.page.fill('input#selectedYear', year_str, timeout=5000)
+            time.sleep(0.1)  # Small delay between fields
             
             # Gender (sexo) - values: "H", "M", or "X"
             gender_value = "H" if gender.upper() == "H" else "M"
             self.page.select_option('select#sexo', gender_value, timeout=5000)
+            time.sleep(0.1)  # Small delay between fields
             
             # State (claveEntidad) - convert state name to code
             state_code = get_state_code(state)
             self.page.select_option('select#claveEntidad', state_code, timeout=5000)
+            time.sleep(0.2)  # Final delay before submission (total ~1 second for form filling)
             
             # Submit form - for Ember.js forms, we need to click the submit button, not use form.submit()
-            time.sleep(0.2)  # Reduced from 0.5 seconds
+            time.sleep(1.0)  # Form submission delay
             submitted = False
             
             try:
@@ -316,7 +472,7 @@ class BrowserAutomation:
                 if submit_button.count() > 0:
                     submit_button.click()
                     submitted = True
-                    time.sleep(0.2)  # Reduced from 0.5 seconds
+                    time.sleep(1.0)  # Form submission delay
             except Exception as e:
                 pass
             
@@ -327,7 +483,7 @@ class BrowserAutomation:
                     if submit_button.count() > 0:
                         submit_button.click()
                         submitted = True
-                        time.sleep(0.2)  # Reduced from 0.5 seconds
+                        time.sleep(0.5)  # Form submission delay
                 except Exception as e:
                     pass
             
@@ -338,7 +494,7 @@ class BrowserAutomation:
                     if buscar_button.count() > 0:
                         buscar_button.click()
                         submitted = True
-                        time.sleep(0.2)  # Reduced from 0.5 seconds
+                        time.sleep(0.5)  # Form submission delay
                 except Exception as e:
                     pass
             
@@ -347,35 +503,101 @@ class BrowserAutomation:
                     # Method 4: Press Enter on the year field (last field filled)
                     self.page.keyboard.press('Enter')
                     submitted = True
-                    time.sleep(0.2)  # Reduced from 0.5 seconds
+                    time.sleep(1.0)  # Form submission delay
                 except Exception as e:
                     print(f"Warning: All form submission methods failed: {e}")
             
-            # Wait for results with better detection (optimized)
-            # Wait for either error modal OR results table to appear
-            try:
-                # Wait for either the modal button OR download link (which indicates results)
-                self.page.wait_for_selector(
-                    'button[data-dismiss="modal"], #dwnldLnk, table.panel-default, .panel-body table',
-                    timeout=15000,  # Reduced from 20000
-                    state='visible'
-                )
-            except Exception as e:
-                # Wait a bit more and try again
-                time.sleep(1)  # Reduced from 2 seconds
+            # Record search start time for timeout detection
+            search_start_time = time.time()
+            
+            # Check for unrecognized errors and recover if needed
+            max_recovery_attempts = 3
+            recovery_attempt = 0
+            while recovery_attempt < max_recovery_attempts:
+                if self._detect_unrecognized_errors():
+                    print(f"Unrecognized error detected, attempting recovery (attempt {recovery_attempt + 1}/{max_recovery_attempts})...")
+                    if self._recover_from_error():
+                        print("Recovery successful, retrying search...")
+                        # Re-fill the form and resubmit
+                        # First name
+                        self.page.fill('input#nombre', first_name, timeout=5000)
+                        time.sleep(0.1)
+                        # First last name
+                        self.page.fill('input#primerApellido', last_name_1, timeout=5000)
+                        time.sleep(0.1)
+                        # Second last name
+                        self.page.fill('input#segundoApellido', last_name_2, timeout=5000)
+                        time.sleep(0.1)
+                        # Day
+                        day_str = str(day).zfill(2)
+                        self.page.select_option('select#diaNacimiento', day_str, timeout=5000)
+                        time.sleep(0.1)
+                        # Month
+                        month_str = str(month).zfill(2)
+                        self.page.select_option('select#mesNacimiento', month_str, timeout=5000)
+                        time.sleep(0.1)
+                        # Year
+                        year_str = str(year)
+                        self.page.fill('input#selectedYear', year_str, timeout=5000)
+                        time.sleep(0.1)
+                        # Gender
+                        gender_value = "H" if gender.upper() == "H" else "M"
+                        self.page.select_option('select#sexo', gender_value, timeout=5000)
+                        time.sleep(0.1)
+                        # State
+                        state_code = get_state_code(state)
+                        self.page.select_option('select#claveEntidad', state_code, timeout=5000)
+                        time.sleep(0.2)
+                        # Resubmit
+                        time.sleep(1.0)
+                        try:
+                            submit_button = self.page.locator('#tab-02 form button[type="submit"]').first
+                            if submit_button.count() > 0:
+                                submit_button.click()
+                                time.sleep(1.0)
+                            else:
+                                self.page.keyboard.press('Enter')
+                                time.sleep(1.0)
+                        except:
+                            self.page.keyboard.press('Enter')
+                            time.sleep(1.0)
+                        search_start_time = time.time()  # Reset start time
+                    else:
+                        print("Recovery failed")
+                    recovery_attempt += 1
+                else:
+                    break  # No unrecognized errors, proceed with search
+            
+            # Wait for search completion with 6-second timeout
+            search_completed = self._wait_for_search_completion(timeout=6.0)
+            
+            if not search_completed:
+                # Timeout occurred - reload page and move to next input
+                print(f"Search timeout after 6 seconds, reloading page and moving to next input...")
                 try:
-                    self.page.wait_for_selector(
-                        'button[data-dismiss="modal"], #dwnldLnk, .panel-body',
-                        timeout=8000  # Reduced from 10000
-                    )
-                except:
-                    pass
+                    self.page.reload(wait_until='load', timeout=90000)
+                    time.sleep(3.0)  # Page load wait
+                    
+                    # Click on "Datos Personales" tab
+                    try:
+                        self.page.wait_for_selector('a[href="#tab-02"]', timeout=10000)
+                        tab = self.page.locator('a[href="#tab-02"]').first
+                        tab_class = tab.get_attribute('class') or ''
+                        if 'active' not in tab_class:
+                            tab.click()
+                            time.sleep(0.7)  # Tab switch delay
+                    except:
+                        pass
+                    
+                    self.form_ready = True
+                    # Return empty content to indicate no result
+                    return ""
+                except Exception as e:
+                    print(f"Error during timeout recovery: {e}")
+                    return ""
             
-            # Reduced wait for content to fully load
-            time.sleep(0.8)  # Reduced from 2 seconds
-            
-            # Reduced wait for dynamic content (the site uses Ember.js)
-            time.sleep(0.7)  # Reduced from 1.5 seconds
+            # Search completed - verify page stability and get results
+            time.sleep(0.2)  # Small delay to ensure all DOM updates are complete
             
             # Check for results FIRST before closing modal
             # Get page content to check for matches
@@ -393,7 +615,7 @@ class BrowserAutomation:
                 # No results, so close modal if present
                 self._close_modal_if_present()
                 # Re-get content after modal closes
-                time.sleep(0.2)
+                time.sleep(1.0)  # Modal closing delay
                 content = self.page.content()
                 # Don't navigate - we're already on the form page, just continue
                 # Set flag to indicate we don't need navigation next time
