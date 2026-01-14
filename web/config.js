@@ -1,9 +1,9 @@
 // API Configuration
-// Update this with your VPS API URL
+// VPS API URL - configured for production
 const API_CONFIG = {
-    // Example: 'http://your-vps-ip:5000' or 'https://your-vps-domain.com'
-    // For local testing: 'http://localhost:5000'
+    // VPS IP address
     baseURL: 'http://84.247.138.193:5000',
+    // For local testing, change to: 'http://localhost:5000'
     
     // WebSocket URL (automatically derived from baseURL)
     get wsURL() {
