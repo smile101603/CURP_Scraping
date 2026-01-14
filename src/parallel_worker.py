@@ -63,7 +63,8 @@ class ParallelWorker:
                     gender: str, person_id: int, person_name: str,
                     total_combinations: int, checkpoint_manager: CheckpointManager,
                     all_results: List[Dict], processed_count: Dict,
-                    stop_event: threading.Event, progress_callback=None):
+                    stop_event: threading.Event, progress_callback=None,
+                    check_cancellation=None):
         """
         Worker thread that processes combinations from the queue.
         
@@ -82,6 +83,7 @@ class ParallelWorker:
             processed_count: Shared dict for processed count
             stop_event: Event to signal stop
             progress_callback: Optional callback function for progress updates
+            check_cancellation: Optional function to check if job is cancelled
         """
         browser_automation = None
         
@@ -120,6 +122,12 @@ class ParallelWorker:
             worker_search_count = 0
             
             while not stop_event.is_set():
+                # Check for cancellation periodically
+                if check_cancellation and check_cancellation():
+                    logger.info(f"Worker {worker_id}: Job cancelled, stopping...")
+                    stop_event.set()
+                    break
+                
                 try:
                     # Get combination from queue (with timeout)
                     try:
@@ -255,6 +263,12 @@ class ParallelWorker:
                             except Exception as e:
                                 logger.error(f"Error in progress callback: {e}")
                         
+                        # Check for cancellation before checkpoint
+                        if check_cancellation and check_cancellation():
+                            logger.info(f"Worker {worker_id}: Job cancelled during processing, stopping...")
+                            stop_event.set()
+                            break
+                        
                         # Save checkpoint periodically (every 100 combinations across all workers)
                         if current_count % 100 == 0:
                             with self.checkpoint_lock:
@@ -344,7 +358,7 @@ class ParallelWorker:
     def process_person_parallel(self, person_data: Dict, combinations: Iterator[Tuple[int, int, str, int]],
                               total_combinations: int, checkpoint_manager: CheckpointManager,
                               all_results: List[Dict], start_index: int = 0, person_name: str = None,
-                              progress_callback=None):
+                              progress_callback=None, job_id: str = None, check_cancellation=None):
         """
         Process a person's combinations using parallel workers.
         
@@ -357,6 +371,8 @@ class ParallelWorker:
             start_index: Starting combination index (for resume)
             person_name: Person's full name (for checkpoints)
             progress_callback: Optional callback function for progress updates
+            job_id: Optional job ID for cancellation checking
+            check_cancellation: Optional function to check if job is cancelled
         """
         first_name = person_data['first_name']
         last_name_1 = person_data['last_name_1']
@@ -402,7 +418,8 @@ class ParallelWorker:
                 args=(worker_id, combinations_queue, first_name, last_name_1,
                      last_name_2, gender, person_id, person_name,
                      total_combinations, checkpoint_manager, all_results,
-                     processed_count, stop_event, progress_callback),
+                     processed_count, stop_event, progress_callback, 
+                     check_cancellation),
                 daemon=True
             )
             thread.start()
@@ -413,11 +430,29 @@ class ParallelWorker:
         
         logger.info(f"Started {self.num_workers} worker threads")
         
-        # Wait for all combinations to be processed
+        # Wait for all combinations to be processed or cancellation
         try:
-            # Wait for queue to be fully processed
-            combinations_queue.join()
-            logger.info(f"All combinations processed for person {person_id}")
+            # Wait for queue to be fully processed, but check for cancellation periodically
+            while True:
+                # Check for cancellation first
+                if check_cancellation and check_cancellation():
+                    logger.info(f"Job cancelled, stopping all workers for person {person_id}")
+                    stop_event.set()
+                    break
+                
+                # Check if queue is empty and all tasks done
+                if combinations_queue.empty():
+                    # Try to join with short timeout to check if all tasks are done
+                    try:
+                        combinations_queue.join(timeout=0.1)
+                        # If join succeeds, all tasks are done
+                        logger.info(f"All combinations processed for person {person_id}")
+                        break
+                    except:
+                        # Still processing, continue waiting
+                        pass
+                
+                time.sleep(0.5)
         except KeyboardInterrupt:
             logger.info("Interrupted by user. Stopping workers...")
             stop_event.set()

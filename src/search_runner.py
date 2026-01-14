@@ -189,6 +189,11 @@ def run_search(job_id: str, input_file_path: str, year_start: int, year_end: int
                 except Exception as e:
                     logger.error(f"Error in progress callback: {e}", exc_info=True)
             
+            # Create cancellation check function
+            def is_cancelled():
+                job = search_manager.get_job(job_id)
+                return job and job.status == JobStatus.CANCELLED
+            
             # Process using parallel workers
             parallel_worker.process_person_parallel(
                 person_data={
@@ -204,8 +209,15 @@ def run_search(job_id: str, input_file_path: str, year_start: int, year_end: int
                 all_results=all_results,
                 start_index=0,
                 person_name=person_name,
-                progress_callback=progress_cb
+                progress_callback=progress_cb,
+                job_id=job_id,
+                check_cancellation=is_cancelled
             )
+            
+            # Check if cancelled after processing
+            if is_cancelled():
+                logger.info(f"Job {job_id} was cancelled, stopping search")
+                return
             
             # Count matches found for this person
             person_matches = [r for r in all_results if r.get('person_id') == person_id]
