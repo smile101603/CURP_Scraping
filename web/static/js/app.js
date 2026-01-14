@@ -1,0 +1,383 @@
+// Main Application Logic
+class CURPApp {
+    constructor() {
+        this.apiBaseURL = API_CONFIG.baseURL;
+        this.wsClient = new WebSocketClient(this.apiBaseURL);
+        this.currentJobId = null;
+        this.uploadedFile = null;
+        this.searchStartTime = null; // Track search start time for time estimation
+        
+        this.initializeElements();
+        this.initializeEventListeners();
+        this.connectWebSocket();
+    }
+
+    initializeElements() {
+        // API Config
+        this.apiURLInput = document.getElementById('api-url');
+        this.apiURLInput.value = this.apiBaseURL;
+        
+        // Connection Status
+        this.connectionStatus = document.getElementById('connection-status');
+        
+        // File Upload
+        this.uploadArea = document.getElementById('upload-area');
+        this.fileInput = document.getElementById('file-input');
+        this.fileInfo = document.getElementById('file-info');
+        this.fileName = document.getElementById('file-name');
+        
+        // Year Range
+        this.yearStartInput = document.getElementById('year-start');
+        this.yearEndInput = document.getElementById('year-end');
+        
+        // Buttons
+        this.startBtn = document.getElementById('start-btn');
+        this.stopBtn = document.getElementById('stop-btn');
+        this.downloadBtn = document.getElementById('download-btn');
+        
+        // Progress
+        this.progressSection = document.getElementById('progress-section');
+        this.progressBar = document.getElementById('progress-bar');
+        this.progressPercentage = document.getElementById('progress-percentage');
+        this.currentPerson = document.getElementById('current-person');
+        this.currentCombination = document.getElementById('current-combination');
+        this.matchesFound = document.getElementById('matches-found');
+        this.estimatedTime = document.getElementById('estimated-time');
+        
+        // Messages
+        this.messageDiv = document.getElementById('message');
+    }
+
+    initializeEventListeners() {
+        // API URL change
+        this.apiURLInput.addEventListener('change', () => {
+            this.apiBaseURL = this.apiURLInput.value;
+            API_CONFIG.baseURL = this.apiBaseURL;
+            this.disconnectWebSocket();
+            this.connectWebSocket();
+        });
+
+        // File Upload
+        this.uploadArea.addEventListener('click', () => this.fileInput.click());
+        this.uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            this.uploadArea.classList.add('dragover');
+        });
+        this.uploadArea.addEventListener('dragleave', () => {
+            this.uploadArea.classList.remove('dragover');
+        });
+        this.uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            this.uploadArea.classList.remove('dragover');
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                this.handleFileSelect(files[0]);
+            }
+        });
+        this.fileInput.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                this.handleFileSelect(e.target.files[0]);
+            }
+        });
+
+        // Start Button
+        this.startBtn.addEventListener('click', () => this.startSearch());
+        
+        // Stop Button
+        this.stopBtn.addEventListener('click', () => this.stopSearch());
+        
+        // Download Button
+        this.downloadBtn.addEventListener('click', () => this.downloadResults());
+    }
+
+    connectWebSocket() {
+        this.wsClient.onConnect(() => {
+            this.updateConnectionStatus('connected', 'Connected');
+        });
+
+        this.wsClient.onDisconnect(() => {
+            this.updateConnectionStatus('disconnected', 'Disconnected');
+        });
+
+        this.wsClient.onProgress((data) => {
+            // Handle nested progress structure
+            if (data.progress) {
+                this.updateProgress(data.progress);
+            } else {
+                // Fallback: data might be the progress object directly
+                this.updateProgress(data);
+            }
+        });
+
+        this.wsClient.onComplete((data) => {
+            this.showMessage('Search completed successfully!', 'success');
+            this.startBtn.disabled = false;
+            this.stopBtn.disabled = true;
+            this.downloadBtn.disabled = false;
+        });
+
+        this.wsClient.onError((data) => {
+            this.showMessage(`Error: ${data.error_message}`, 'error');
+            this.startBtn.disabled = false;
+            this.stopBtn.disabled = true;
+        });
+
+        this.wsClient.connect();
+        this.updateConnectionStatus('connecting', 'Connecting...');
+    }
+
+    disconnectWebSocket() {
+        this.wsClient.disconnect();
+    }
+
+    updateConnectionStatus(status, text) {
+        this.connectionStatus.className = `connection-status ${status}`;
+        this.connectionStatus.textContent = text;
+    }
+
+    handleFileSelect(file) {
+        if (!file.name.match(/\.(xlsx|xls)$/i)) {
+            this.showMessage('Please select an Excel file (.xlsx or .xls)', 'error');
+            return;
+        }
+
+        this.uploadedFile = file;
+        this.fileName.textContent = file.name;
+        this.fileInfo.classList.add('show');
+    }
+
+    async uploadFile() {
+        if (!this.uploadedFile) {
+            this.showMessage('Please select a file first', 'error');
+            return null;
+        }
+
+        const formData = new FormData();
+        formData.append('file', this.uploadedFile);
+
+        try {
+            const response = await fetch(`${this.apiBaseURL}/api/upload`, {
+                method: 'POST',
+                body: formData
+            });
+
+            const data = await response.json();
+
+            if (!response.ok) {
+                throw new Error(data.error || 'Upload failed');
+            }
+
+            this.showMessage('File uploaded successfully', 'success');
+            return data.filename;
+        } catch (error) {
+            this.showMessage(`Upload error: ${error.message}`, 'error');
+            return null;
+        }
+    }
+
+    async startSearch() {
+        if (!this.uploadedFile) {
+            this.showMessage('Please upload a file first', 'error');
+            return;
+        }
+
+        const yearStart = parseInt(this.yearStartInput.value);
+        const yearEnd = parseInt(this.yearEndInput.value);
+
+        if (!yearStart || !yearEnd) {
+            this.showMessage('Please enter valid year range', 'error');
+            return;
+        }
+
+        if (yearStart > yearEnd) {
+            this.showMessage('Start year must be less than or equal to end year', 'error');
+            return;
+        }
+
+        // Upload file
+        const filename = await this.uploadFile();
+        if (!filename) {
+            return;
+        }
+
+        // Start search
+        try {
+            const response = await fetch(`${this.apiBaseURL}/api/start`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    filename: filename,
+                    year_start: yearStart,
+                    year_end: yearEnd
+                })
+            });
+
+            const data = await response.json();
+
+            if (!response.ok) {
+                throw new Error(data.error || 'Failed to start search');
+            }
+
+            this.currentJobId = data.job_id;
+            this.wsClient.subscribeToJob(this.currentJobId);
+            
+            // Reset search start time
+            this.searchStartTime = Date.now();
+            
+            this.showMessage('Search started', 'success');
+            this.progressSection.classList.add('show');
+            this.startBtn.disabled = true;
+            this.stopBtn.disabled = false;
+            this.downloadBtn.disabled = true;
+            
+            // Reset progress
+            this.updateProgress({
+                person_id: 0,
+                person_name: '',
+                combination_index: 0,
+                total_combinations: 0,
+                matches_found: 0,
+                current_combination: null,
+                percentage: 0
+            });
+
+        } catch (error) {
+            this.showMessage(`Error starting search: ${error.message}`, 'error');
+        }
+    }
+
+    async stopSearch() {
+        if (!this.currentJobId) {
+            return;
+        }
+
+        try {
+            const response = await fetch(`${this.apiBaseURL}/api/cancel/${this.currentJobId}`, {
+                method: 'POST'
+            });
+
+            const data = await response.json();
+
+            if (response.ok) {
+                this.showMessage('Search cancelled', 'info');
+                this.startBtn.disabled = false;
+                this.stopBtn.disabled = true;
+            }
+        } catch (error) {
+            this.showMessage(`Error cancelling search: ${error.message}`, 'error');
+        }
+    }
+
+    updateProgress(progress) {
+        if (!progress) return;
+
+        // Calculate percentage if not provided
+        let percentage = progress.percentage;
+        if (percentage === undefined || percentage === null) {
+            if (progress.combination_index > 0 && progress.total_combinations > 0) {
+                percentage = (progress.combination_index / progress.total_combinations) * 100;
+            } else {
+                percentage = 0;
+            }
+        }
+
+        this.progressBar.style.width = `${percentage}%`;
+        this.progressPercentage.textContent = `${percentage.toFixed(1)}%`;
+
+        this.currentPerson.textContent = progress.person_name || 'N/A';
+        
+        if (progress.current_combination) {
+            const combo = progress.current_combination;
+            this.currentCombination.textContent = 
+                `${combo.day}/${combo.month}/${combo.year} - ${combo.state}`;
+        } else {
+            this.currentCombination.textContent = 'N/A';
+        }
+
+        this.matchesFound.textContent = progress.matches_found || 0;
+
+        // Estimate time remaining based on actual progress rate
+        if (progress.combination_index > 0 && progress.total_combinations > 0) {
+            // Track start time if not already set
+            if (!this.searchStartTime) {
+                this.searchStartTime = Date.now();
+            }
+            
+            const remaining = progress.total_combinations - progress.combination_index;
+            
+            // Calculate elapsed time
+            const elapsedMs = Date.now() - this.searchStartTime;
+            const elapsedSeconds = elapsedMs / 1000;
+            
+            // Calculate rate (combinations per second)
+            const rate = progress.combination_index / elapsedSeconds;
+            
+            // Estimate remaining time based on current rate
+            if (rate > 0) {
+                const estimatedSeconds = Math.round(remaining / rate);
+                const hours = Math.floor(estimatedSeconds / 3600);
+                const minutes = Math.floor((estimatedSeconds % 3600) / 60);
+                const seconds = estimatedSeconds % 60;
+                
+                if (hours > 0) {
+                    this.estimatedTime.textContent = `${hours}h ${minutes}m`;
+                } else if (minutes > 0) {
+                    this.estimatedTime.textContent = `${minutes}m ${seconds}s`;
+                } else {
+                    this.estimatedTime.textContent = `${seconds}s`;
+                }
+            } else {
+                this.estimatedTime.textContent = 'Calculating...';
+            }
+        } else {
+            this.estimatedTime.textContent = 'Calculating...';
+        }
+    }
+
+    async downloadResults() {
+        if (!this.currentJobId) {
+            this.showMessage('No job selected', 'error');
+            return;
+        }
+
+        try {
+            const response = await fetch(`${this.apiBaseURL}/api/download/${this.currentJobId}`);
+            
+            if (!response.ok) {
+                throw new Error('Download failed');
+            }
+
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `curp_results_${this.currentJobId}.xlsx`;
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+
+            this.showMessage('Results downloaded', 'success');
+        } catch (error) {
+            this.showMessage(`Download error: ${error.message}`, 'error');
+        }
+    }
+
+
+    showMessage(text, type) {
+        this.messageDiv.textContent = text;
+        this.messageDiv.className = `message ${type} show`;
+        
+        setTimeout(() => {
+            this.messageDiv.classList.remove('show');
+        }, 5000);
+    }
+}
+
+// Initialize app when DOM is ready
+let app;
+document.addEventListener('DOMContentLoaded', () => {
+    app = new CURPApp();
+});

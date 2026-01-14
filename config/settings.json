@@ -1,0 +1,30 @@
+{
+  "year_range": {
+    "start": 1970,
+    "end": 1980
+  },
+  "delays": {
+    "min_seconds": 1,
+    "max_seconds": 2
+  },
+  "pause_every_n": 75,
+  "pause_duration": 15,
+  "browser": {
+    "headless": false
+  },
+  "num_workers": 6,
+  "output_dir": "./data/results",
+  "input_dir": "./data",
+  "checkpoint_dir": "./checkpoints",
+  "api": {
+    "port": 5000,
+    "host": "0.0.0.0",
+    "debug": false,
+    "max_upload_size": 10,
+    "cors_origins": ["*"],
+    "ssl_enabled": false,
+    "ssl_cert_path": "",
+    "ssl_key_path": ""
+  }
+}
+

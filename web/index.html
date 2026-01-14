@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CURP Automation Tool</title>
+    <link rel="stylesheet" href="static/css/style.css">
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🔍 CURP Automation Tool</h1>
+            <p class="subtitle">Automated CURP Search System</p>
+            <div id="connection-status" class="connection-status disconnected">Disconnected</div>
+        </header>
+
+        <!-- API Configuration -->
+        <div class="api-config">
+            <h3>API Configuration</h3>
+            <input type="text" id="api-url" placeholder="Enter VPS API URL (e.g., http://your-vps-ip:5000)">
+        </div>
+
+        <!-- Messages -->
+        <div id="message" class="message"></div>
+
+        <!-- File Upload Section -->
+        <div class="upload-section">
+            <h3>Upload Excel File</h3>
+            <div id="upload-area" class="upload-area">
+                <div class="upload-icon">📁</div>
+                <div class="upload-text">Click to upload or drag and drop</div>
+                <div class="upload-hint">Excel files only (.xlsx, .xls)</div>
+                <input type="file" id="file-input" accept=".xlsx,.xls">
+            </div>
+            <div id="file-info" class="file-info">
+                <div class="file-name" id="file-name"></div>
+            </div>
+        </div>
+
+        <!-- Year Range Input -->
+        <div class="year-range">
+            <div class="form-group">
+                <label for="year-start">Start Year</label>
+                <input type="number" id="year-start" min="1900" max="2100" value="1970" required>
+            </div>
+            <div class="form-group">
+                <label for="year-end">End Year</label>
+                <input type="number" id="year-end" min="1900" max="2100" value="1980" required>
+            </div>
+        </div>
+
+        <!-- Action Buttons -->
+        <div class="actions">
+            <button id="start-btn" class="btn btn-primary">Start Search</button>
+            <button id="stop-btn" class="btn btn-secondary" disabled>Stop Search</button>
+            <button id="download-btn" class="btn btn-primary" disabled>Download Results</button>
+        </div>
+
+        <!-- Progress Dashboard -->
+        <div id="progress-section" class="progress-section">
+            <div class="progress-header">
+                <h3 class="progress-title">Search Progress</h3>
+            </div>
+            <div class="progress-bar-container">
+                <div id="progress-bar" class="progress-bar">
+                    <span id="progress-percentage">0%</span>
+                </div>
+            </div>
+            <div class="progress-details">
+                <div class="progress-item">
+                    <div class="progress-item-label">Current Person</div>
+                    <div id="current-person" class="progress-item-value">N/A</div>
+                </div>
+                <div class="progress-item">
+                    <div class="progress-item-label">Current Combination</div>
+                    <div id="current-combination" class="progress-item-value">N/A</div>
+                </div>
+                <div class="progress-item">
+                    <div class="progress-item-label">Matches Found</div>
+                    <div id="matches-found" class="progress-item-value">0</div>
+                </div>
+                <div class="progress-item">
+                    <div class="progress-item-label">Estimated Time Remaining</div>
+                    <div id="estimated-time" class="progress-item-value">Calculating...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="config.js"></script>
+    <script src="static/js/websocket.js"></script>
+    <script src="static/js/app.js"></script>
+</body>
+</html>
