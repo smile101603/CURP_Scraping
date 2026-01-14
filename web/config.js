@@ -3,7 +3,7 @@
 const API_CONFIG = {
     // Example: 'http://your-vps-ip:5000' or 'https://your-vps-domain.com'
     // For local testing: 'http://localhost:5000'
-    baseURL: 'http://localhost:5000',
+    baseURL: 'http://84.247.138.193:5000',
     
     // WebSocket URL (automatically derived from baseURL)
     get wsURL() {

@@ -11,6 +11,12 @@ from pathlib import Path
 # Add src directory to path
 sys.path.insert(0, str(Path(__file__).parent / 'src'))
 
+# Create necessary directories first
+Path('logs').mkdir(exist_ok=True)
+Path('data/uploads').mkdir(parents=True, exist_ok=True)
+Path('data/results').mkdir(parents=True, exist_ok=True)
+Path('checkpoints').mkdir(exist_ok=True)
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -47,12 +53,6 @@ def main():
         
         logger.info(f"Starting CURP Automation API server on {host}:{port}")
         logger.info(f"Debug mode: {debug}")
-        
-        # Create necessary directories
-        Path('logs').mkdir(exist_ok=True)
-        Path('data/uploads').mkdir(parents=True, exist_ok=True)
-        Path('data/results').mkdir(parents=True, exist_ok=True)
-        Path('checkpoints').mkdir(exist_ok=True)
         
         # Run the application
         socketio.run(
