@@ -239,12 +239,131 @@ If the script is interrupted (Ctrl+C) or crashes:
 - It will automatically resume from the last position
 - To start fresh, delete the checkpoint file in the `checkpoints` directory
 
+## Timing Configuration
+
+This section documents all timing elements and delays used in the search process. These can be adjusted in `src/browser_automation.py` and `config/settings.json`.
+
+### 1. Initial Browser Setup (One-time per browser session)
+
+- **Page load wait**: `3.0` seconds (after navigating to CURP portal)
+- **Tab switch delay**: `0.7` seconds (when clicking "Datos Personales" tab)
+- **Navigation timeout**: `90000` ms (90 seconds) for page load operations
+
+### 2. Form Filling Delays (Per Search)
+
+Each form field has specific delays to simulate human behavior:
+
+| Field | Typing Delay | Thinking Delay | Total Range |
+|-------|-------------|----------------|-------------|
+| First Name | 0.15-0.4s (random) | 0.2-0.5s (random) | ~0.35-0.9s |
+| First Last Name | 0.15-0.4s (random) | 0.2-0.5s (random) | ~0.35-0.9s |
+| Second Last Name | 0.15-0.4s (random) | 0.3-0.7s (random) | ~0.45-1.1s |
+| Day (dropdown) | - | 0.4-0.8s (random) | ~0.4-0.8s |
+| Month (dropdown) | - | 0.4-0.8s (random) | ~0.4-0.8s |
+| Year (input) | 0.15-0.4s (random) | 0.3-0.6s (random) | ~0.45-1.0s |
+| Gender (dropdown) | - | 0.3-0.7s (random) | ~0.3-0.7s |
+| State (dropdown) | - | 0.5-1.2s (random) | ~0.5-1.2s |
+| Pre-submit review | - | 0.8-1.5s (random) | ~0.8-1.5s |
+
+**Total Form Filling Time**: Approximately `3.5-7.0` seconds per search
+
+### 3. Form Submission (Per Search)
+
+- **After clicking submit**: `1.0-2.0` seconds (random delay)
+- **Fallback method delays**: `0.5-1.0` seconds (if alternative submission methods are used)
+- **Field operation timeout**: `5000` ms (5 seconds) per form field
+
+### 4. Waiting for Results (Per Search)
+
+- **Maximum wait timeout**: `20.0` seconds (waits for result or error modal)
+- **After detecting result/modal**: `1.0` seconds (fixed, ensures content is loaded)
+- **Content stability check**: `0.5` seconds (fixed, verifies DOM stability)
+- **Check interval**: `0.3-0.8` seconds (random, polling interval)
+- **Error retry delay**: `0.5` seconds (fixed, on error during wait)
+- **Post-result reading delay**: `0.5-1.0` seconds (random, after getting results)
+
+**Total Wait Time**: `~1.5-20.0` seconds (depends on server response speed)
+
+### 5. Modal Closing (Per No-Match Result)
+
+- **After closing modal**: `0.6` seconds (fixed delay)
+
+### 6. Post-Search Delays (Per Search)
+
+- **Random delay between searches**: `1-2` seconds (configurable in `config/settings.json`)
+  - Default: `min_seconds: 1`, `max_seconds: 2`
+
+### 7. Periodic Pauses
+
+- **Pause frequency**: Every `75` searches (configurable in `config/settings.json`)
+- **Pause duration**: `15` seconds (configurable in `config/settings.json`)
+
+### 8. Error Recovery Delays
+
+- **Recovery form filling**: `0.1` seconds per field (fixed, faster during recovery)
+- **Recovery form submission**: `1.0-2.0` seconds (random delay)
+- **Page reload wait**: `3.0` seconds (fixed, when reloading due to errors)
+- **Tab switch after reload**: `0.7` seconds (fixed)
+
+### 9. Page Reload (On Match/Timeout/Error)
+
+- **Page reload wait**: `3.0` seconds (fixed, after reloading page)
+- **Tab switch after reload**: `0.7` seconds (fixed, to return to form)
+
+---
+
+### Timing Summary
+
+**Best Case Scenario (Fast Server Response)**:
+- Form filling: `~3.5s`
+- Submission: `~1.0s`
+- Wait for results: `~1.5s`
+- Modal close (if no match): `~0.6s`
+- Random delay: `~1.0s`
+- **Total: ~7.6 seconds per search**
+
+**Worst Case Scenario (Slow Server Response)**:
+- Form filling: `~7.0s`
+- Submission: `~2.0s`
+- Wait for results: `~20.0s` (timeout)
+- Modal close: `~0.6s`
+- Random delay: `~2.0s`
+- **Total: ~31.6 seconds per search**
+
+**Average Case**:
+- **Approximately: ~15-20 seconds per search**
+
+---
+
+### Configuration Files
+
+**Timing settings in `config/settings.json`**:
+```json
+{
+  "delays": {
+    "min_seconds": 1,      // Minimum delay between searches
+    "max_seconds": 2       // Maximum delay between searches
+  },
+  "pause_every_n": 75,     // Pause every N searches
+  "pause_duration": 15     // Pause duration in seconds
+}
+```
+
+**Timing settings in `src/browser_automation.py`**:
+- Form filling delays (lines 502-543)
+- Submission delays (lines 553-584)
+- Wait for results timeout (line 651)
+- Modal closing delay (line 178)
+- Page load waits (multiple locations)
+
+**Note**: Adjusting these values may affect detection risk. Reducing delays too much may increase the chance of being blocked by the portal.
+
 ## Performance Expectations
 
-- **Search Rate**: Approximately 12-30 searches per minute (depending on configured delays)
+- **Search Rate**: Approximately 3-8 searches per minute (depending on server response time)
 - **Time per Person**: For a 10-year range:
   - Total combinations: ~122,760 per person
-  - Estimated time: ~68-170 hours per person (at 2-5 second delays)
+  - Estimated time: ~255-409 hours per person (at 15-20 seconds per search average)
   
 **Important**: This is intentionally slow to avoid getting blocked by the portal. Adjust delays at your own risk.
 
