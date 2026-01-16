@@ -22,12 +22,9 @@ CORS(app, resources={
 })
 
 # Initialize SocketIO with CORS support
-# Try eventlet first, fallback to threading if not available
-try:
-    import eventlet
-    async_mode = 'eventlet'
-except ImportError:
-    async_mode = 'threading'
+# Use threading mode to avoid conflicts with Playwright's sync API
+# Playwright's sync API doesn't work well with eventlet's greenlet-based concurrency
+async_mode = 'threading'
 
 socketio = SocketIO(
     app,
