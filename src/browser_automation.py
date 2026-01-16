@@ -68,7 +68,7 @@ class BrowserAutomation:
                 # Use 'load' instead of 'networkidle' for faster loading
                 # Increase timeout to 90 seconds
                 self.page.goto(self.url, wait_until='load', timeout=90000)
-                time.sleep(3.0)  # Page load wait
+                time.sleep(2.0)  # Page load wait
                 
                 # Click on "Datos Personales" tab to access the form
                 try:
@@ -76,7 +76,7 @@ class BrowserAutomation:
                     self.page.wait_for_selector('a[href="#tab-02"]', timeout=15000)
                     # Click the "Datos Personales" tab
                     self.page.click('a[href="#tab-02"]')
-                    time.sleep(0.7)  # Tab switch delay
+                    time.sleep(0.4)  # Tab switch delay
                 except Exception as e:
                     print(f"Warning: Could not click 'Datos Personales' tab: {e}")
                 
@@ -162,7 +162,7 @@ class BrowserAutomation:
     def _human_like_typing_delay(self):
         """Apply delay that simulates human typing speed."""
         # Humans type at different speeds, add variable delay
-        delay = random.uniform(0.15, 0.4)
+        delay = random.uniform(0.1, 0.2)
         time.sleep(delay)
     
     def _close_modal_if_present(self):
@@ -175,7 +175,7 @@ class BrowserAutomation:
             close_button = self.page.query_selector('button[data-dismiss="modal"]')
             if close_button:
                 close_button.click()
-                time.sleep(0.6)  # Fixed 0.6s delay after closing modal (as specified)
+                time.sleep(0.4)  # Fixed 0.4s delay after closing modal
         except:
             pass
     
@@ -209,7 +209,7 @@ class BrowserAutomation:
             if needs_navigation:
                 # Navigate back to form (only when necessary)
                 self.page.goto(self.url, wait_until='load', timeout=90000)
-                time.sleep(3.0)  # Page load wait
+                time.sleep(2.0)  # Page load wait
                 
                 # Click on "Datos Personales" tab to access the form
                 try:
@@ -220,11 +220,11 @@ class BrowserAutomation:
                         tab_class = tab.get_attribute('class') or ''
                         if 'active' not in tab_class:
                             tab.click()
-                            time.sleep(0.7)  # Tab switch delay
+                            time.sleep(0.4)  # Tab switch delay
                     except:
                         # If we can't check, just click it anyway
                         tab.click()
-                        time.sleep(0.7)  # Tab switch delay
+                        time.sleep(0.4)  # Tab switch delay
                 except Exception as e:
                     print(f"Warning: Could not click 'Datos Personales' tab: {e}")
                     raise
@@ -236,7 +236,7 @@ class BrowserAutomation:
                     tab_class = tab.get_attribute('class') or ''
                     if 'active' not in tab_class:
                         tab.click()
-                        time.sleep(0.7)  # Tab switch delay
+                        time.sleep(0.4)  # Tab switch delay
                 except:
                     pass  # Tab might already be active or not critical
             
@@ -334,7 +334,7 @@ class BrowserAutomation:
                             )
                             if still_has_match:
                                 # Additional wait to ensure DOM is stable
-                                time.sleep(0.5)
+                                time.sleep(0.3)
                                 return True
                         elif has_no_match_modal:
                             # Verify modal is still present
@@ -344,7 +344,7 @@ class BrowserAutomation:
                                 self.page.locator('button[data-dismiss="modal"]').count() > 0
                             )
                             if still_has_modal:
-                                time.sleep(0.5)
+                                time.sleep(0.3)
                                 return True
                 
                 # Use variable check interval (more human-like)
@@ -445,7 +445,7 @@ class BrowserAutomation:
         try:
             # Reload the page
             self.page.reload(wait_until='load', timeout=90000)
-            time.sleep(3.0)  # Page load wait
+            time.sleep(2.0)  # Page load wait
             
             # Click on "Datos Personales" tab to access the form
             try:
@@ -454,7 +454,7 @@ class BrowserAutomation:
                 tab_class = tab.get_attribute('class') or ''
                 if 'active' not in tab_class:
                     tab.click()
-                    time.sleep(0.7)  # Tab switch delay
+                    time.sleep(0.4)  # Tab switch delay
             except Exception as e:
                 print(f"Warning: Could not click 'Datos Personales' tab during recovery: {e}")
                 return False
@@ -501,46 +501,46 @@ class BrowserAutomation:
             # First name (nombres) - humans type at variable speeds
             self.page.fill('input#nombre', first_name, timeout=5000)
             self._human_like_typing_delay()
-            self._human_like_delay(0.2, 0.5)  # Pause to "read" or "think"
+            self._human_like_delay(0.1, 0.2)  # Pause to "read" or "think"
             
             # First last name (primerApellido)
             self.page.fill('input#primerApellido', last_name_1, timeout=5000)
             self._human_like_typing_delay()
-            self._human_like_delay(0.2, 0.5)
+            self._human_like_delay(0.1, 0.2)
             
             # Second last name (segundoApellido)
             self.page.fill('input#segundoApellido', last_name_2, timeout=5000)
             self._human_like_typing_delay()
-            self._human_like_delay(0.3, 0.7)  # Longer pause before dropdowns
+            self._human_like_delay(0.1, 0.3)  # Slightly longer pause before dropdowns
             
             # Day - format as "01", "02", etc. (humans take time to select from dropdown)
             day_str = str(day).zfill(2)
             self.page.select_option('select#diaNacimiento', day_str, timeout=5000)
-            self._human_like_delay(0.4, 0.8)  # Dropdown selection takes longer
+            self._human_like_delay(0.2, 0.4)  # Dropdown selection delay
             
             # Month - format as "01", "02", etc.
             month_str = str(month).zfill(2)
             self.page.select_option('select#mesNacimiento', month_str, timeout=5000)
-            self._human_like_delay(0.4, 0.8)
+            self._human_like_delay(0.2, 0.4)
             
             # Year (humans type numbers at variable speeds)
             year_str = str(year)
             self.page.fill('input#selectedYear', year_str, timeout=5000)
             self._human_like_typing_delay()
-            self._human_like_delay(0.3, 0.6)
+            self._human_like_delay(0.1, 0.2)
             
             # Gender (sexo) - values: "H", "M", or "X"
             gender_value = "H" if gender.upper() == "H" else "M"
             self.page.select_option('select#sexo', gender_value, timeout=5000)
-            self._human_like_delay(0.3, 0.7)
+            self._human_like_delay(0.2, 0.3)
             
             # State (claveEntidad) - convert state name to code (longer pause for state selection)
             state_code = get_state_code(state)
             self.page.select_option('select#claveEntidad', state_code, timeout=5000)
-            self._human_like_delay(0.5, 1.2)  # Longer pause - humans review before submitting
+            self._human_like_delay(0.2, 0.3)  # Reduced pause before submitting
             
             # Submit form - humans pause before clicking submit button
-            self._human_like_delay(0.8, 1.5)  # "Review" the form before submitting
+            self._human_like_delay(0.2, 0.4)  # "Review" the form before submitting
             submitted = False
             
             try:
@@ -550,7 +550,7 @@ class BrowserAutomation:
                 if submit_button.count() > 0:
                     submit_button.click()
                     submitted = True
-                    self._human_like_delay(1.0, 2.0)  # Variable delay after clicking
+                    self._human_like_delay(0.3, 0.6)  # Variable delay after clicking
             except Exception as e:
                 pass
             
@@ -561,7 +561,7 @@ class BrowserAutomation:
                     if submit_button.count() > 0:
                         submit_button.click()
                         submitted = True
-                        time.sleep(0.5)  # Form submission delay
+                        time.sleep(0.3)  # Form submission delay
                 except Exception as e:
                     pass
             
@@ -572,7 +572,7 @@ class BrowserAutomation:
                     if buscar_button.count() > 0:
                         buscar_button.click()
                         submitted = True
-                        time.sleep(0.5)  # Form submission delay
+                        time.sleep(0.3)  # Form submission delay
                 except Exception as e:
                     pass
             
@@ -581,7 +581,7 @@ class BrowserAutomation:
                     # Method 4: Press Enter on the year field (last field filled)
                     self.page.keyboard.press('Enter')
                     submitted = True
-                    time.sleep(1.0)  # Form submission delay
+                    time.sleep(0.5)  # Form submission delay
                 except Exception as e:
                     print(f"Warning: All form submission methods failed: {e}")
             
@@ -627,18 +627,18 @@ class BrowserAutomation:
                         self.page.select_option('select#claveEntidad', state_code, timeout=5000)
                         time.sleep(0.2)
                         # Resubmit
-                        self._human_like_delay(1.0, 2.0)
+                        self._human_like_delay(0.3, 0.6)
                         try:
                             submit_button = self.page.locator('#tab-02 form button[type="submit"]').first
                             if submit_button.count() > 0:
                                 submit_button.click()
-                                self._human_like_delay(1.0, 2.0)
+                                self._human_like_delay(0.3, 0.6)
                             else:
                                 self.page.keyboard.press('Enter')
-                                self._human_like_delay(1.0, 2.0)
+                                self._human_like_delay(0.3, 0.6)
                         except:
                             self.page.keyboard.press('Enter')
-                            self._human_like_delay(1.0, 2.0)
+                            self._human_like_delay(0.3, 0.6)
                         search_start_time = time.time()  # Reset start time
                     else:
                         print("Recovery failed")
@@ -655,7 +655,7 @@ class BrowserAutomation:
                 print(f"Search timeout after 20 seconds, reloading page and moving to next input...")
                 try:
                     self.page.reload(wait_until='load', timeout=90000)
-                    time.sleep(3.0)  # Page load wait
+                    time.sleep(2.0)  # Page load wait
                     
                     # Click on "Datos Personales" tab
                     try:
@@ -664,7 +664,7 @@ class BrowserAutomation:
                         tab_class = tab.get_attribute('class') or ''
                         if 'active' not in tab_class:
                             tab.click()
-                            time.sleep(0.7)  # Tab switch delay
+                            time.sleep(0.4)  # Tab switch delay
                     except:
                         pass
                     
@@ -677,7 +677,7 @@ class BrowserAutomation:
             
             # Search completed - verify page stability and get results
             # Add human-like pause to "read" the results
-            self._human_like_delay(0.5, 1.0)  # Humans pause to read results
+            self._human_like_delay(0.2, 0.3)  # Humans pause to read results
             
             # Check for results FIRST before closing modal
             # Get page content to check for matches
@@ -709,7 +709,7 @@ class BrowserAutomation:
                 print("Match found! Reloading page for next search...")
                 try:
                     self.page.reload(wait_until='load', timeout=90000)
-                    time.sleep(3.0)  # Page load wait
+                    time.sleep(2.0)  # Page load wait
                     
                     # Click on "Datos Personales" tab
                     try:
@@ -718,7 +718,7 @@ class BrowserAutomation:
                         tab_class = tab.get_attribute('class') or ''
                         if 'active' not in tab_class:
                             tab.click()
-                            time.sleep(0.7)  # Tab switch delay
+                            time.sleep(0.4)  # Tab switch delay
                     except:
                         pass
                     
@@ -746,6 +746,39 @@ class BrowserAutomation:
             
             # Increment search count
             self.search_count += 1
+            
+            # After every 10 searches, sleep 5s, reload page, and reinitialize form
+            if self.search_count % 10 == 0:
+                print(f"After {self.search_count} searches: sleeping 5s, reloading page, and reinitializing form...")
+                time.sleep(5.0)  # Sleep for 5 seconds
+                
+                # Reload the page
+                try:
+                    self.page.reload(wait_until='load', timeout=90000)
+                    time.sleep(2.0)  # Page load wait
+                    
+                    # Click on "Datos Personales" tab to access the form
+                    try:
+                        self.page.wait_for_selector('a[href="#tab-02"]', timeout=10000)
+                        tab = self.page.locator('a[href="#tab-02"]').first
+                        tab_class = tab.get_attribute('class') or ''
+                        if 'active' not in tab_class:
+                            tab.click()
+                            time.sleep(0.4)  # Tab switch delay
+                    except Exception as e:
+                        print(f"Warning: Could not click 'Datos Personales' tab after reload: {e}")
+                    
+                    # Wait for form fields to be available
+                    self.page.wait_for_selector('input#nombre', timeout=5000)
+                    self.form_ready = True
+                    print("Page reloaded and form reinitialized successfully.")
+                except Exception as e:
+                    print(f"Error during page reload after 10 searches: {e}")
+                    # Try to recover by ensuring form is ready
+                    try:
+                        self._ensure_form_ready()
+                    except:
+                        pass
             
             # Apply delay after search
             self._random_delay()

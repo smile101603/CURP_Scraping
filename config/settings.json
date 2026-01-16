@@ -4,20 +4,20 @@
     "end": 1980
   },
   "delays": {
-    "min_seconds": 1,
-    "max_seconds": 2
+    "min_seconds": 0.5,
+    "max_seconds": 1.0
   },
   "pause_every_n": 75,
   "pause_duration": 15,
   "browser": {
-    "headless": false
+    "headless": true
   },
   "num_workers": 11,
   "output_dir": "./data/results",
   "input_dir": "./data",
   "checkpoint_dir": "./checkpoints",
   "vps": {
-    "enabled": false,
+    "enabled": true,
     "vps_ips": [
       "84.247.138.193",
       "84.247.138.186"
