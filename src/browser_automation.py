@@ -4,6 +4,9 @@ Handles browser automation using Playwright to interact with the CURP portal.
 """
 import time
 import random
+import threading
+import queue
+import asyncio
 from typing import Optional, Dict
 from playwright.sync_api import sync_playwright, Page, Browser, BrowserContext
 from state_codes import get_state_code
@@ -45,7 +48,43 @@ class BrowserAutomation:
     
     def start_browser(self):
         """Start browser and navigate to CURP page."""
-        self.playwright = sync_playwright().start()
+        # Ensure we're not in an asyncio event loop context
+        # Playwright sync API must run in a clean thread without asyncio
+        try:
+            # Try to get the current event loop
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                # If there's a running event loop, we need to start Playwright in a separate thread
+                result_queue = queue.Queue()
+                exception_queue = queue.Queue()
+                
+                def start_playwright_in_clean_thread():
+                    """Start Playwright in a thread without asyncio context."""
+                    try:
+                        # Create a new event loop policy that doesn't interfere
+                        playwright_instance = sync_playwright().start()
+                        result_queue.put(playwright_instance)
+                    except Exception as e:
+                        exception_queue.put(e)
+                
+                # Start Playwright in a clean thread
+                thread = threading.Thread(target=start_playwright_in_clean_thread, daemon=False)
+                thread.start()
+                thread.join(timeout=30)
+                
+                if not exception_queue.empty():
+                    raise exception_queue.get()
+                
+                if result_queue.empty():
+                    raise RuntimeError("Failed to start Playwright in clean thread")
+                
+                self.playwright = result_queue.get()
+            else:
+                # No running event loop, safe to use sync API directly
+                self.playwright = sync_playwright().start()
+        except RuntimeError:
+            # No event loop exists, safe to use sync API directly
+            self.playwright = sync_playwright().start()
         
         # Launch browser
         self.browser = self.playwright.chromium.launch(
