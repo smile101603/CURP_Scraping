@@ -4,9 +4,6 @@ Handles browser automation using Playwright to interact with the CURP portal.
 """
 import time
 import random
-import threading
-import queue
-import asyncio
 from typing import Optional, Dict
 from playwright.sync_api import sync_playwright, Page, Browser, BrowserContext
 from state_codes import get_state_code
@@ -48,43 +45,23 @@ class BrowserAutomation:
     
     def start_browser(self):
         """Start browser and navigate to CURP page."""
-        # Ensure we're not in an asyncio event loop context
-        # Playwright sync API must run in a clean thread without asyncio
+        # Workers run in separate threads, so Playwright can be used directly
+        # The asyncio issue only occurs in the main thread with eventlet
+        # Since we're using threading mode for Flask-SocketIO, workers are clean threads
         try:
-            # Try to get the current event loop
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                # If there's a running event loop, we need to start Playwright in a separate thread
-                result_queue = queue.Queue()
-                exception_queue = queue.Queue()
-                
-                def start_playwright_in_clean_thread():
-                    """Start Playwright in a thread without asyncio context."""
-                    try:
-                        # Create a new event loop policy that doesn't interfere
-                        playwright_instance = sync_playwright().start()
-                        result_queue.put(playwright_instance)
-                    except Exception as e:
-                        exception_queue.put(e)
-                
-                # Start Playwright in a clean thread
-                thread = threading.Thread(target=start_playwright_in_clean_thread, daemon=False)
-                thread.start()
-                thread.join(timeout=30)
-                
-                if not exception_queue.empty():
-                    raise exception_queue.get()
-                
-                if result_queue.empty():
-                    raise RuntimeError("Failed to start Playwright in clean thread")
-                
-                self.playwright = result_queue.get()
-            else:
-                # No running event loop, safe to use sync API directly
-                self.playwright = sync_playwright().start()
-        except RuntimeError:
-            # No event loop exists, safe to use sync API directly
             self.playwright = sync_playwright().start()
+        except Exception as e:
+            # If we get an asyncio error, it means we're in the main thread with an event loop
+            # In that case, we need to ensure we're not in an asyncio context
+            error_msg = str(e).lower()
+            if 'asyncio' in error_msg or 'event loop' in error_msg:
+                # This shouldn't happen in worker threads, but handle it just in case
+                # Try to use Playwright directly anyway - the error might be a false positive
+                # If it still fails, the worker will retry
+                raise RuntimeError(f"Playwright asyncio conflict detected. This should not happen in worker threads. Error: {e}")
+            else:
+                # Some other error, re-raise it
+                raise
         
         # Launch browser
         self.browser = self.playwright.chromium.launch(
