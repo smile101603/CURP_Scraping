@@ -6,6 +6,8 @@ from flask import request, jsonify, send_file
 from werkzeug.utils import secure_filename
 import os
 import logging
+import json
+import requests
 from pathlib import Path
 from . import app, socketio
 from .search_manager import search_manager
@@ -131,6 +133,53 @@ def start_search():
         
         # Start search in background
         run_search_async(job_id, str(file_path), year_start, year_end)
+        
+        # If VPS distribution is enabled, trigger other VPSs to start the same job
+        try:
+            from pathlib import Path
+            config_path = Path('./config/settings.json')
+            if config_path.exists():
+                with open(config_path, 'r', encoding='utf-8') as f:
+                    config = json.load(f)
+                    vps_config = config.get('vps', {})
+                    vps_enabled = vps_config.get('enabled', False)
+                    vps_ips = vps_config.get('vps_ips', [])
+                    current_vps_index = vps_config.get('current_vps_index', 0)
+                    
+                    if vps_enabled and len(vps_ips) >= 2:
+                        # Trigger other VPSs to start the same job
+                        for idx, vps_ip in enumerate(vps_ips):
+                            if idx != current_vps_index:
+                                try:
+                                    # First, upload the file to the other VPS
+                                    with open(file_path, 'rb') as f:
+                                        files = {'file': (filename, f, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')}
+                                        upload_url = f"http://{vps_ip}:5000/api/upload"
+                                        upload_response = requests.post(upload_url, files=files, timeout=30)
+                                        
+                                        if upload_response.status_code == 200:
+                                            upload_data = upload_response.json()
+                                            uploaded_filename = upload_data.get('filename', filename)
+                                            
+                                            # Then start the job on the other VPS
+                                            start_url = f"http://{vps_ip}:5000/api/start"
+                                            start_data = {
+                                                'filename': uploaded_filename,
+                                                'year_start': year_start,
+                                                'year_end': year_end
+                                            }
+                                            start_response = requests.post(start_url, json=start_data, timeout=10)
+                                            
+                                            if start_response.status_code == 200:
+                                                logger.info(f"Successfully triggered job on VPS {idx} ({vps_ip})")
+                                            else:
+                                                logger.warning(f"Failed to start job on VPS {idx} ({vps_ip}): {start_response.status_code} - {start_response.text}")
+                                        else:
+                                            logger.warning(f"Failed to upload file to VPS {idx} ({vps_ip}): {upload_response.status_code} - {upload_response.text}")
+                                except Exception as e:
+                                    logger.error(f"Error triggering VPS {idx} ({vps_ip}): {e}")
+        except Exception as e:
+            logger.warning(f"Error triggering other VPSs (job will continue on this VPS): {e}")
         
         return jsonify({
             'message': 'Search started',
