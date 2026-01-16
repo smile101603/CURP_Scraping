@@ -10,9 +10,9 @@
   "pause_every_n": 75,
   "pause_duration": 15,
   "browser": {
-    "headless": true
+    "headless": false
   },
-  "num_workers": 11,
+  "num_workers": 3,
   "output_dir": "./data/results",
   "input_dir": "./data",
   "checkpoint_dir": "./checkpoints",
