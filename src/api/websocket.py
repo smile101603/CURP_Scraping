@@ -37,6 +37,9 @@ def handle_subscribe_job(data):
         job = search_manager.get_job(job_id)
         
         if not job:
+            # Job not found - this is expected when using multiple VPSs
+            # Jobs are created on the VPS where the frontend connects
+            logger.debug(f"Job {job_id} not found on this VPS (expected when using multiple VPSs)")
             emit('error', {'message': 'Job not found'})
             return
         

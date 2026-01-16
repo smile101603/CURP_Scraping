@@ -2,7 +2,7 @@
 // VPS API URL - configured for production
 const API_CONFIG = {
     // VPS IP address
-    baseURL: 'http://84.247.138.186:5000',
+    baseURL: 'http://84.247.138.193:5000',
     // For local testing, change to: 'http://localhost:5000'
     
     // WebSocket URL (automatically derived from baseURL)

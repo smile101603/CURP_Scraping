@@ -17,7 +17,18 @@ Path('data/uploads').mkdir(parents=True, exist_ok=True)
 Path('data/results').mkdir(parents=True, exist_ok=True)
 Path('checkpoints').mkdir(exist_ok=True)
 
-# Configure logging
+# Configure logging with filter to suppress noisy errors
+class WerkzeugErrorFilter(logging.Filter):
+    """Filter out noisy Werkzeug errors from bots/scanners."""
+    def filter(self, record):
+        # Suppress "Bad request version" errors (from bots/scanners)
+        if 'Bad request version' in str(record.getMessage()):
+            return False
+        # Suppress "write() before start response" errors (Werkzeug internal issues)
+        if 'write() before start response' in str(record.getMessage()):
+            return False
+        return True
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -26,6 +37,10 @@ logging.basicConfig(
         logging.StreamHandler(sys.stdout)
     ]
 )
+
+# Add filter to suppress noisy errors
+werkzeug_logger = logging.getLogger('werkzeug')
+werkzeug_logger.addFilter(WerkzeugErrorFilter())
 
 logger = logging.getLogger(__name__)
 
