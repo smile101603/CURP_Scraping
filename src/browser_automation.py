@@ -64,26 +64,26 @@ class BrowserAutomation:
         retry_delay = 3
         
         for attempt in range(max_retries):
-            try:
-                # Use 'load' instead of 'networkidle' for faster loading
+        try:
+            # Use 'load' instead of 'networkidle' for faster loading
                 # Increase timeout to 90 seconds
                 self.page.goto(self.url, wait_until='load', timeout=90000)
                 time.sleep(2.0)  # Page load wait
-                
-                # Click on "Datos Personales" tab to access the form
-                try:
-                    # Wait for the tab to be available
-                    self.page.wait_for_selector('a[href="#tab-02"]', timeout=15000)
-                    # Click the "Datos Personales" tab
-                    self.page.click('a[href="#tab-02"]')
+            
+            # Click on "Datos Personales" tab to access the form
+            try:
+                # Wait for the tab to be available
+                self.page.wait_for_selector('a[href="#tab-02"]', timeout=15000)
+                # Click the "Datos Personales" tab
+                self.page.click('a[href="#tab-02"]')
                     time.sleep(0.4)  # Tab switch delay
-                except Exception as e:
-                    print(f"Warning: Could not click 'Datos Personales' tab: {e}")
+            except Exception as e:
+                print(f"Warning: Could not click 'Datos Personales' tab: {e}")
                 
                 # Success - break out of retry loop
                 break
                 
-            except Exception as e:
+        except Exception as e:
                 if attempt < max_retries - 1:
                     print(f"Error navigating to {self.url} (attempt {attempt + 1}/{max_retries}): {e}")
                     print(f"Retrying in {retry_delay} seconds...")
@@ -91,7 +91,7 @@ class BrowserAutomation:
                     retry_delay *= 1.5  # Exponential backoff
                 else:
                     print(f"Error navigating to {self.url} after {max_retries} attempts: {e}")
-                    raise
+            raise
     
     def close_browser(self):
         """Close browser and cleanup."""
@@ -99,49 +99,49 @@ class BrowserAutomation:
         # This helps avoid asyncio cleanup warnings on Windows
         # Note: RuntimeError warnings from asyncio on Windows are harmless
         try:
-            if self.page:
-                try:
-                    self.page.close()
+        if self.page:
+            try:
+                self.page.close()
                     time.sleep(0.1)  # Small delay between closes
                 except Exception:
                     # Ignore errors during page close
                     pass
         except Exception:
-            pass
+                pass
         
         try:
-            if self.context:
-                try:
-                    self.context.close()
+        if self.context:
+            try:
+                self.context.close()
                     time.sleep(0.1)  # Small delay between closes
                 except Exception:
                     # Ignore errors during context close
                     pass
         except Exception:
-            pass
+                pass
         
         try:
-            if self.browser:
-                try:
-                    self.browser.close()
+        if self.browser:
+            try:
+                self.browser.close()
                     time.sleep(0.2)  # Longer delay before stopping playwright
                 except Exception:
                     # Ignore errors during browser close
                     pass
         except Exception:
-            pass
+                pass
         
         try:
-            if self.playwright:
-                try:
+        if self.playwright:
+            try:
                     # Stop playwright - this might trigger asyncio cleanup warnings on Windows
                     # but they are harmless and can be safely ignored
-                    self.playwright.stop()
+                self.playwright.stop()
                 except Exception:
                     # Ignore errors during playwright stop
                     pass
         except Exception:
-            pass
+                pass
     
     def _random_delay(self):
         """Apply random delay between searches."""
@@ -423,8 +423,8 @@ class BrowserAutomation:
                 page_title = self.page.title()
                 if 'error' in page_title.lower() or 'not found' in page_title.lower():
                     has_unrecognized = True
-            except:
-                pass
+        except:
+            pass
             
             # Return True only if we have unrecognized errors AND not known errors
             return has_unrecognized and not has_known_error
@@ -631,13 +631,13 @@ class BrowserAutomation:
                         try:
                             submit_button = self.page.locator('#tab-02 form button[type="submit"]').first
                             if submit_button.count() > 0:
-                                submit_button.click()
+                    submit_button.click()
                                 self._human_like_delay(0.3, 0.6)
-                            else:
-                                self.page.keyboard.press('Enter')
+                else:
+                    self.page.keyboard.press('Enter')
                                 self._human_like_delay(0.3, 0.6)
                         except:
-                            self.page.keyboard.press('Enter')
+                self.page.keyboard.press('Enter')
                             self._human_like_delay(0.3, 0.6)
                         search_start_time = time.time()  # Reset start time
                     else:
@@ -665,7 +665,7 @@ class BrowserAutomation:
                         if 'active' not in tab_class:
                             tab.click()
                             time.sleep(0.4)  # Tab switch delay
-                    except:
+            except:
                         pass
                     
                     self.form_ready = True
