@@ -39,6 +39,9 @@ class BrowserAutomation:
         self.search_count = 0
         self.url = "https://www.gob.mx/curp/"
         self.form_ready = False  # Track if form has been initialized
+        
+        # Track time for periodic 40-second pause
+        self.last_pause_time = time.time()
     
     def start_browser(self):
         """Start browser and navigate to CURP page."""
@@ -64,26 +67,26 @@ class BrowserAutomation:
         retry_delay = 3
         
         for attempt in range(max_retries):
-        try:
-            # Use 'load' instead of 'networkidle' for faster loading
+            try:
+                # Use 'load' instead of 'networkidle' for faster loading
                 # Increase timeout to 90 seconds
                 self.page.goto(self.url, wait_until='load', timeout=90000)
                 time.sleep(2.0)  # Page load wait
-            
-            # Click on "Datos Personales" tab to access the form
-            try:
-                # Wait for the tab to be available
-                self.page.wait_for_selector('a[href="#tab-02"]', timeout=15000)
-                # Click the "Datos Personales" tab
-                self.page.click('a[href="#tab-02"]')
+                
+                # Click on "Datos Personales" tab to access the form
+                try:
+                    # Wait for the tab to be available
+                    self.page.wait_for_selector('a[href="#tab-02"]', timeout=15000)
+                    # Click the "Datos Personales" tab
+                    self.page.click('a[href="#tab-02"]')
                     time.sleep(0.4)  # Tab switch delay
-            except Exception as e:
-                print(f"Warning: Could not click 'Datos Personales' tab: {e}")
+                except Exception as e:
+                    print(f"Warning: Could not click 'Datos Personales' tab: {e}")
                 
                 # Success - break out of retry loop
                 break
                 
-        except Exception as e:
+            except Exception as e:
                 if attempt < max_retries - 1:
                     print(f"Error navigating to {self.url} (attempt {attempt + 1}/{max_retries}): {e}")
                     print(f"Retrying in {retry_delay} seconds...")
@@ -91,7 +94,7 @@ class BrowserAutomation:
                     retry_delay *= 1.5  # Exponential backoff
                 else:
                     print(f"Error navigating to {self.url} after {max_retries} attempts: {e}")
-            raise
+                    raise
     
     def close_browser(self):
         """Close browser and cleanup."""
@@ -99,49 +102,49 @@ class BrowserAutomation:
         # This helps avoid asyncio cleanup warnings on Windows
         # Note: RuntimeError warnings from asyncio on Windows are harmless
         try:
-        if self.page:
-            try:
-                self.page.close()
+            if self.page:
+                try:
+                    self.page.close()
                     time.sleep(0.1)  # Small delay between closes
                 except Exception:
                     # Ignore errors during page close
                     pass
         except Exception:
-                pass
+            pass
         
         try:
-        if self.context:
-            try:
-                self.context.close()
+            if self.context:
+                try:
+                    self.context.close()
                     time.sleep(0.1)  # Small delay between closes
                 except Exception:
                     # Ignore errors during context close
                     pass
         except Exception:
-                pass
+            pass
         
         try:
-        if self.browser:
-            try:
-                self.browser.close()
+            if self.browser:
+                try:
+                    self.browser.close()
                     time.sleep(0.2)  # Longer delay before stopping playwright
                 except Exception:
                     # Ignore errors during browser close
                     pass
         except Exception:
-                pass
+            pass
         
         try:
-        if self.playwright:
-            try:
+            if self.playwright:
+                try:
                     # Stop playwright - this might trigger asyncio cleanup warnings on Windows
                     # but they are harmless and can be safely ignored
-                self.playwright.stop()
+                    self.playwright.stop()
                 except Exception:
                     # Ignore errors during playwright stop
                     pass
         except Exception:
-                pass
+            pass
     
     def _random_delay(self):
         """Apply random delay between searches."""
@@ -264,13 +267,13 @@ class BrowserAutomation:
             # If clearing fails, continue anyway - form submission will overwrite
             pass
     
-    def _wait_for_search_completion(self, timeout: float = 20.0) -> bool:
+    def _wait_for_search_completion(self, timeout: float = 10.0) -> bool:
         """
         Wait for search to complete (results or error modal appear).
         Uses longer timeout to handle slow bot detection responses.
         
         Args:
-            timeout: Maximum time to wait in seconds (default 20.0)
+            timeout: Maximum time to wait in seconds (default 10.0)
         
         Returns:
             True if search completed, False if timeout
@@ -423,8 +426,8 @@ class BrowserAutomation:
                 page_title = self.page.title()
                 if 'error' in page_title.lower() or 'not found' in page_title.lower():
                     has_unrecognized = True
-        except:
-            pass
+            except:
+                pass
             
             # Return True only if we have unrecognized errors AND not known errors
             return has_unrecognized and not has_known_error
@@ -631,13 +634,13 @@ class BrowserAutomation:
                         try:
                             submit_button = self.page.locator('#tab-02 form button[type="submit"]').first
                             if submit_button.count() > 0:
-                    submit_button.click()
+                                submit_button.click()
                                 self._human_like_delay(0.3, 0.6)
-                else:
-                    self.page.keyboard.press('Enter')
+                            else:
+                                self.page.keyboard.press('Enter')
                                 self._human_like_delay(0.3, 0.6)
                         except:
-                self.page.keyboard.press('Enter')
+                            self.page.keyboard.press('Enter')
                             self._human_like_delay(0.3, 0.6)
                         search_start_time = time.time()  # Reset start time
                     else:
@@ -648,7 +651,7 @@ class BrowserAutomation:
             
             # Wait for search completion with 20 second timeout
             # If no result appears within 20s, reload and proceed to next input
-            search_completed = self._wait_for_search_completion(timeout=20.0)
+            search_completed = self._wait_for_search_completion(timeout=5.0)
             
             if not search_completed:
                 # Timeout occurred - reload page and move to next input
@@ -665,7 +668,7 @@ class BrowserAutomation:
                         if 'active' not in tab_class:
                             tab.click()
                             time.sleep(0.4)  # Tab switch delay
-            except:
+                    except:
                         pass
                     
                     self.form_ready = True
@@ -731,7 +734,7 @@ class BrowserAutomation:
                     return content
                     
             elif has_no_match_modal:
-                # No match found - close modal in 0.6s and proceed to next input
+                # No match found - close modal and proceed to next input (NO PAGE RELOAD)
                 self._close_modal_if_present()
                 # Content already updated, form is ready for next input
                 self.form_ready = True
@@ -747,10 +750,18 @@ class BrowserAutomation:
             # Increment search count
             self.search_count += 1
             
-            # After every 10 searches, sleep 5s, reload page, and reinitialize form
-            if self.search_count % 10 == 0:
-                print(f"After {self.search_count} searches: sleeping 5s, reloading page, and reinitializing form...")
-                time.sleep(5.0)  # Sleep for 5 seconds
+            # Check if 40 seconds have elapsed since last pause
+            current_time = time.time()
+            elapsed_time = current_time - self.last_pause_time
+            if elapsed_time >= 40.0:
+                print(f"40 seconds elapsed, pausing for 10 seconds...")
+                time.sleep(10.0)
+                self.last_pause_time = time.time()
+            
+            # After every 5 searches, sleep 3s, reload page, and reinitialize form
+            if self.search_count % 5 == 0:
+                print(f"After {self.search_count} searches: sleeping 3s, reloading page, and reinitializing form...")
+                time.sleep(3.0)  # Sleep for 3 seconds
                 
                 # Reload the page
                 try:
