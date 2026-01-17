@@ -216,7 +216,10 @@ class CURPApp {
             const data = await response.json();
 
             if (!response.ok) {
-                throw new Error(data.error || `Failed to start search on ${vpsIP}`);
+                const errorMsg = data.error || `Failed to start search on ${vpsIP}`;
+                console.error(`Error from ${vpsIP}:`, errorMsg);
+                console.error(`Request body was:`, JSON.stringify(requestBody, null, 2));
+                throw new Error(errorMsg);
             }
 
             const yearRangeInfo = (lastPersonYearStart !== undefined) 

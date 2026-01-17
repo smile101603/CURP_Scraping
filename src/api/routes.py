@@ -276,16 +276,22 @@ def start_search():
         
         # Validate input
         if not data:
+            logger.error("No data provided in /api/start request")
             return jsonify({'error': 'No data provided'}), 400
+        
+        logger.info(f"Received /api/start request data keys: {list(data.keys()) if data else 'None'}")
+        logger.debug(f"Received /api/start request data: {data}")
         
         filename = data.get('filename')
         year_start = data.get('year_start')
         year_end = data.get('year_end')
         
         if not filename:
+            logger.error("Filename missing in /api/start request")
             return jsonify({'error': 'Filename is required'}), 400
         
-        if not year_start or not year_end:
+        if year_start is None or year_end is None:
+            logger.error(f"Year range missing in /api/start request: year_start={year_start}, year_end={year_end}")
             return jsonify({'error': 'year_start and year_end are required'}), 400
         
         try:
@@ -307,16 +313,24 @@ def start_search():
         # Validate row range if provided
         if start_row is not None or end_row is not None:
             if start_row is None or end_row is None:
-                return jsonify({'error': 'Both start_row and end_row must be provided together'}), 400
+                error_msg = 'Both start_row and end_row must be provided together'
+                logger.error(f"{error_msg}: start_row={start_row}, end_row={end_row}")
+                return jsonify({'error': error_msg}), 400
             try:
                 start_row = int(start_row)
                 end_row = int(end_row)
-            except (ValueError, TypeError):
-                return jsonify({'error': 'start_row and end_row must be integers'}), 400
+            except (ValueError, TypeError) as e:
+                error_msg = 'start_row and end_row must be integers'
+                logger.error(f"{error_msg}: start_row={start_row}, end_row={end_row}, error={e}")
+                return jsonify({'error': error_msg}), 400
             if start_row < 1:
-                return jsonify({'error': 'start_row must be >= 1'}), 400
+                error_msg = 'start_row must be >= 1'
+                logger.error(f"{error_msg}: start_row={start_row}")
+                return jsonify({'error': error_msg}), 400
             if end_row < start_row:
-                return jsonify({'error': 'end_row must be >= start_row'}), 400
+                error_msg = 'end_row must be >= start_row'
+                logger.error(f"{error_msg}: start_row={start_row}, end_row={end_row}")
+                return jsonify({'error': error_msg}), 400
         
         # Check if file exists
         file_path = UPLOAD_FOLDER / filename
@@ -333,16 +347,24 @@ def start_search():
         # Validate last person year range if provided
         if last_person_year_start is not None or last_person_year_end is not None:
             if last_person_year_start is None or last_person_year_end is None:
-                return jsonify({'error': 'Both last_person_year_start and last_person_year_end must be provided together'}), 400
+                error_msg = 'Both last_person_year_start and last_person_year_end must be provided together'
+                logger.error(f"{error_msg}: last_person_year_start={last_person_year_start}, last_person_year_end={last_person_year_end}")
+                return jsonify({'error': error_msg}), 400
             try:
                 last_person_year_start = int(last_person_year_start)
                 last_person_year_end = int(last_person_year_end)
-            except (ValueError, TypeError):
-                return jsonify({'error': 'last_person_year_start and last_person_year_end must be integers'}), 400
+            except (ValueError, TypeError) as e:
+                error_msg = 'last_person_year_start and last_person_year_end must be integers'
+                logger.error(f"{error_msg}: last_person_year_start={last_person_year_start}, last_person_year_end={last_person_year_end}, error={e}")
+                return jsonify({'error': error_msg}), 400
             if last_person_year_start < 1900 or last_person_year_end > 2100:
-                return jsonify({'error': 'Last person year range must be between 1900 and 2100'}), 400
+                error_msg = 'Last person year range must be between 1900 and 2100'
+                logger.error(f"{error_msg}: last_person_year_start={last_person_year_start}, last_person_year_end={last_person_year_end}")
+                return jsonify({'error': error_msg}), 400
             if last_person_year_start > last_person_year_end:
-                return jsonify({'error': 'last_person_year_start must be <= last_person_year_end'}), 400
+                error_msg = 'last_person_year_start must be <= last_person_year_end'
+                logger.error(f"{error_msg}: last_person_year_start={last_person_year_start}, last_person_year_end={last_person_year_end}")
+                return jsonify({'error': error_msg}), 400
         
         # Prepare config overrides with row range and last person year range if provided
         config_overrides = {}
