@@ -30,12 +30,19 @@ class ExcelHandler:
         Expected columns: first_name, last_name_1, last_name_2, gender
         
         Args:
-            filename: Name of the Excel file
+            filename: Name of the Excel file (can be relative or absolute path)
             
         Returns:
             DataFrame with person data
         """
-        file_path = self.input_dir / filename
+        # Check if filename is already an absolute path or contains directory separators
+        file_path_obj = Path(filename)
+        if file_path_obj.is_absolute() or '/' in filename or '\\' in filename:
+            # It's already a full path, use it directly
+            file_path = file_path_obj
+        else:
+            # It's just a filename, prepend input_dir
+            file_path = self.input_dir / filename
         
         if not file_path.exists():
             raise FileNotFoundError(f"Input file not found: {file_path}")

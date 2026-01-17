@@ -191,18 +191,26 @@ class CURPApp {
         }
     }
 
-    async startSearchOnVPS(vpsIP, filename, yearStart, yearEnd, startRow, endRow) {
+    async startSearchOnVPS(vpsIP, filename, yearStart, yearEnd, startRow, endRow, lastPersonYearStart, lastPersonYearEnd) {
         try {
+            const requestBody = {
+                filename: filename,
+                year_start: yearStart,
+                year_end: yearEnd,
+                start_row: startRow,
+                end_row: endRow
+            };
+            
+            // Add last person year range if provided (for odd number split)
+            if (lastPersonYearStart !== undefined && lastPersonYearEnd !== undefined) {
+                requestBody.last_person_year_start = lastPersonYearStart;
+                requestBody.last_person_year_end = lastPersonYearEnd;
+            }
+            
             const response = await fetch(`${vpsIP}/api/start`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    filename: filename,
-                    year_start: yearStart,
-                    year_end: yearEnd,
-                    start_row: startRow,
-                    end_row: endRow
-                })
+                body: JSON.stringify(requestBody)
             });
 
             const data = await response.json();
@@ -211,7 +219,10 @@ class CURPApp {
                 throw new Error(data.error || `Failed to start search on ${vpsIP}`);
             }
 
-            console.log(`Started job ${data.job_id} on ${vpsIP} for rows ${startRow}-${endRow}`);
+            const yearRangeInfo = (lastPersonYearStart !== undefined) 
+                ? ` (last person: ${lastPersonYearStart}-${lastPersonYearEnd})`
+                : '';
+            console.log(`Started job ${data.job_id} on ${vpsIP} for rows ${startRow}-${endRow}${yearRangeInfo}`);
             return data;
         } catch (error) {
             console.error(`Error starting search on ${vpsIP}: ${error.message}`);
@@ -253,26 +264,68 @@ class CURPApp {
 
         // Calculate row ranges for each VPS
         const vpsIPs = API_CONFIG.vpsIPs || [this.apiBaseURL];
-        const rowsPerVPS = Math.ceil(totalRows / vpsIPs.length);
+        const isOdd = totalRows % 2 !== 0;
         const rowRanges = [];
         
-        for (let i = 0; i < vpsIPs.length; i++) {
-            const startRow = i * rowsPerVPS + 1; // 1-based indexing
-            const endRow = Math.min((i + 1) * rowsPerVPS, totalRows);
-            rowRanges.push({ 
-                startRow, 
-                endRow, 
-                vpsIP: vpsIPs[i],
-                rowCount: endRow - startRow + 1
+        // If odd number of persons and exactly 2 VPSs, split last person's year range
+        if (isOdd && vpsIPs.length === 2) {
+            const personsPerVPS = Math.floor(totalRows / 2);
+            const lastPersonIndex = totalRows;
+            const yearRange = yearEnd - yearStart + 1;
+            const midYear = Math.floor(yearRange / 2) + yearStart;
+            
+            // VPS 1: First half persons + first half of last person's year range
+            rowRanges.push({
+                startRow: 1,
+                endRow: lastPersonIndex, // Include last person
+                vpsIP: vpsIPs[0],
+                rowCount: lastPersonIndex,
+                lastPersonYearStart: yearStart,
+                lastPersonYearEnd: midYear - 1
             });
+            
+            // VPS 2: Second half persons + second half of last person's year range
+            rowRanges.push({
+                startRow: lastPersonIndex,
+                endRow: lastPersonIndex, // Only last person
+                vpsIP: vpsIPs[1],
+                rowCount: 1,
+                lastPersonYearStart: midYear,
+                lastPersonYearEnd: yearEnd
+            });
+            
+            this.showMessage(`Distributing ${totalRows} rows (odd): ${personsPerVPS} persons each + last person split (${yearStart}-${midYear-1} / ${midYear}-${yearEnd})`, 'info');
+        } else {
+            // Normal distribution (even number or more than 2 VPSs)
+            const rowsPerVPS = Math.ceil(totalRows / vpsIPs.length);
+            
+            for (let i = 0; i < vpsIPs.length; i++) {
+                const startRow = i * rowsPerVPS + 1; // 1-based indexing
+                const endRow = Math.min((i + 1) * rowsPerVPS, totalRows);
+                rowRanges.push({ 
+                    startRow, 
+                    endRow, 
+                    vpsIP: vpsIPs[i],
+                    rowCount: endRow - startRow + 1
+                });
+            }
+            
+            this.showMessage(`Distributing ${totalRows} rows across ${vpsIPs.length} VPS(s)...`, 'info');
         }
-
-        this.showMessage(`Distributing ${totalRows} rows across ${vpsIPs.length} VPS(s)...`, 'info');
 
         // Send start request to each VPS with its row range
         try {
             const promises = rowRanges.map(range => 
-                this.startSearchOnVPS(range.vpsIP, filename, yearStart, yearEnd, range.startRow, range.endRow)
+                this.startSearchOnVPS(
+                    range.vpsIP, 
+                    filename, 
+                    yearStart, 
+                    yearEnd, 
+                    range.startRow, 
+                    range.endRow,
+                    range.lastPersonYearStart,
+                    range.lastPersonYearEnd
+                )
             );
             
             const results = await Promise.allSettled(promises);

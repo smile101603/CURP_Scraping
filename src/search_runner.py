@@ -131,9 +131,13 @@ def run_search(job_id: str, input_file_path: str, year_start: int, year_end: int
         # Get row range from config_overrides if provided (VPS-aware mode)
         start_row = None
         end_row = None
+        last_person_year_start = None
+        last_person_year_end = None
         if config_overrides:
             start_row = config_overrides.get('start_row')  # 1-based
             end_row = config_overrides.get('end_row')  # 1-based
+            last_person_year_start = config_overrides.get('last_person_year_start')
+            last_person_year_end = config_overrides.get('last_person_year_end')
         
         # Filter rows if row range specified (VPS-aware mode)
         original_row_count = len(input_df)
@@ -144,6 +148,8 @@ def run_search(job_id: str, input_file_path: str, year_start: int, year_end: int
             input_df = input_df.iloc[start_idx:end_idx].copy()
             logger.info(f"VPS-aware mode: Processing rows {start_row}-{end_row} "
                        f"({len(input_df)} rows out of {original_row_count} total)")
+            if last_person_year_start is not None and last_person_year_end is not None:
+                logger.info(f"Last person year range override: {last_person_year_start}-{last_person_year_end}")
         else:
             logger.info(f"Processing all rows: {len(input_df)} person(s)")
         
@@ -210,8 +216,19 @@ def run_search(job_id: str, input_file_path: str, year_start: int, year_end: int
                 return
             
             # Determine year range for this person (VPS distribution or full range)
-            if work_distributor and idx in work_assignments:
-                # Use assigned year range for this person
+            # Check if this is the last person and has year range override (for odd number split)
+            is_last_person = (idx == input_df.index[-1])
+            has_last_person_override = (last_person_year_start is not None and 
+                                       last_person_year_end is not None)
+            
+            if is_last_person and has_last_person_override:
+                # Use year range override for last person (odd number split)
+                person_year_start = last_person_year_start
+                person_year_end = last_person_year_end
+                logger.info(f"Person {person_id} (last person) using year range override: "
+                          f"{person_year_start}-{person_year_end}")
+            elif work_distributor and idx in work_assignments:
+                # Use assigned year range for this person (old VPS distribution)
                 assigned_years = work_assignments[idx]
                 person_year_start = assigned_years['year_start']
                 person_year_end = assigned_years['year_end']

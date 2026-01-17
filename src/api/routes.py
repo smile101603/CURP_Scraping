@@ -326,18 +326,45 @@ def start_search():
         # Create job
         job_id = search_manager.create_job(year_start, year_end, filename)
         
-        # Prepare config overrides with row range if provided
+        # Get optional last person year range (for odd number split)
+        last_person_year_start = data.get('last_person_year_start')
+        last_person_year_end = data.get('last_person_year_end')
+        
+        # Validate last person year range if provided
+        if last_person_year_start is not None or last_person_year_end is not None:
+            if last_person_year_start is None or last_person_year_end is None:
+                return jsonify({'error': 'Both last_person_year_start and last_person_year_end must be provided together'}), 400
+            try:
+                last_person_year_start = int(last_person_year_start)
+                last_person_year_end = int(last_person_year_end)
+            except (ValueError, TypeError):
+                return jsonify({'error': 'last_person_year_start and last_person_year_end must be integers'}), 400
+            if last_person_year_start < 1900 or last_person_year_end > 2100:
+                return jsonify({'error': 'Last person year range must be between 1900 and 2100'}), 400
+            if last_person_year_start > last_person_year_end:
+                return jsonify({'error': 'last_person_year_start must be <= last_person_year_end'}), 400
+        
+        # Prepare config overrides with row range and last person year range if provided
         config_overrides = {}
         if start_row is not None and end_row is not None:
             config_overrides['start_row'] = start_row
             config_overrides['end_row'] = end_row
             logger.info(f"Job {job_id}: Starting with row range {start_row}-{end_row}")
         
+        if last_person_year_start is not None and last_person_year_end is not None:
+            config_overrides['last_person_year_start'] = last_person_year_start
+            config_overrides['last_person_year_end'] = last_person_year_end
+            logger.info(f"Job {job_id}: Last person year range override: {last_person_year_start}-{last_person_year_end}")
+        
         # Start search in background
         run_search_async(job_id, str(file_path), year_start, year_end, config_overrides)
         
-        logger.info(f"Job {job_id} started: file={filename}, year_range={year_start}-{year_end}, "
-                   f"row_range={'{}-{}'.format(start_row, end_row) if start_row else 'all'}")
+        log_msg = f"Job {job_id} started: file={filename}, year_range={year_start}-{year_end}"
+        if start_row:
+            log_msg += f", row_range={start_row}-{end_row}"
+        if last_person_year_start:
+            log_msg += f", last_person_years={last_person_year_start}-{last_person_year_end}"
+        logger.info(log_msg)
         
         return jsonify({
             'job_id': job_id,
