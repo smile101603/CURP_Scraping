@@ -133,11 +133,15 @@ def run_search(job_id: str, input_file_path: str, year_start: int, year_end: int
         end_row = None
         last_person_year_start = None
         last_person_year_end = None
+        last_person_month_start = None
+        last_person_month_end = None
         if config_overrides:
             start_row = config_overrides.get('start_row')  # 1-based
             end_row = config_overrides.get('end_row')  # 1-based
             last_person_year_start = config_overrides.get('last_person_year_start')
             last_person_year_end = config_overrides.get('last_person_year_end')
+            last_person_month_start = config_overrides.get('last_person_month_start')
+            last_person_month_end = config_overrides.get('last_person_month_end')
         
         # Filter rows if row range specified (VPS-aware mode)
         original_row_count = len(input_df)
@@ -150,6 +154,8 @@ def run_search(job_id: str, input_file_path: str, year_start: int, year_end: int
                        f"({len(input_df)} rows out of {original_row_count} total)")
             if last_person_year_start is not None and last_person_year_end is not None:
                 logger.info(f"Last person year range override: {last_person_year_start}-{last_person_year_end}")
+            if last_person_month_start is not None and last_person_month_end is not None:
+                logger.info(f"Last person month range override: {last_person_month_start}-{last_person_month_end}")
         else:
             logger.info(f"Processing all rows: {len(input_df)} person(s)")
         
@@ -220,13 +226,26 @@ def run_search(job_id: str, input_file_path: str, year_start: int, year_end: int
             is_last_person = (idx == input_df.index[-1])
             has_last_person_override = (last_person_year_start is not None and 
                                        last_person_year_end is not None)
+            has_last_person_month_override = (last_person_month_start is not None and 
+                                             last_person_month_end is not None)
+            
+            # Initialize month range (default: all months)
+            person_month_start = 1
+            person_month_end = 12
             
             if is_last_person and has_last_person_override:
                 # Use year range override for last person (odd number split)
                 person_year_start = last_person_year_start
                 person_year_end = last_person_year_end
-                logger.info(f"Person {person_id} (last person) using year range override: "
-                          f"{person_year_start}-{person_year_end}")
+                # Use month range override if provided (for 1-year range split)
+                if has_last_person_month_override:
+                    person_month_start = last_person_month_start
+                    person_month_end = last_person_month_end
+                    logger.info(f"Person {person_id} (last person) using year range override: "
+                              f"{person_year_start}-{person_year_end}, month range: {person_month_start}-{person_month_end}")
+                else:
+                    logger.info(f"Person {person_id} (last person) using year range override: "
+                              f"{person_year_start}-{person_year_end}")
             elif work_distributor and idx in work_assignments:
                 # Use assigned year range for this person (old VPS distribution)
                 assigned_years = work_assignments[idx]
@@ -244,8 +263,9 @@ def run_search(job_id: str, input_file_path: str, year_start: int, year_end: int
                     person_year_start = year_start
                     person_year_end = year_end
             
-            # Create combination generator with assigned year range
-            combination_generator = CombinationGenerator(person_year_start, person_year_end)
+            # Create combination generator with assigned year range and month range
+            combination_generator = CombinationGenerator(person_year_start, person_year_end, 
+                                                       person_month_start, person_month_end)
             total_combinations = combination_generator.get_total_count()
             
             logger.info(f"Processing person {person_id}: {person_name}")

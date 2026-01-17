@@ -46,21 +46,33 @@ MEXICAN_STATES = [
 class CombinationGenerator:
     """Generate combinations for CURP search."""
     
-    def __init__(self, start_year: int, end_year: int):
+    def __init__(self, start_year: int, end_year: int, start_month: int = 1, end_month: int = 12):
         """
         Initialize combination generator.
         
         Args:
             start_year: Starting year for birth year range
             end_year: Ending year for birth year range (inclusive)
+            start_month: Starting month for birth month range (default: 1)
+            end_month: Ending month for birth month range (default: 12, inclusive)
         """
         self.start_year = start_year
         self.end_year = end_year
+        self.start_month = start_month
+        self.end_month = end_month
         self.states = MEXICAN_STATES
+        
+        # Validate month range
+        if start_month < 1 or start_month > 12:
+            raise ValueError(f"start_month must be between 1 and 12, got {start_month}")
+        if end_month < 1 or end_month > 12:
+            raise ValueError(f"end_month must be between 1 and 12, got {end_month}")
+        if start_month > end_month:
+            raise ValueError(f"start_month ({start_month}) must be <= end_month ({end_month})")
         
         # Calculate total combinations
         days = 31  # 1-31
-        months = 12  # 1-12
+        months = (end_month - start_month + 1)  # Month range
         states_count = len(self.states)
         years_count = end_year - start_year + 1
         
@@ -74,7 +86,7 @@ class CombinationGenerator:
             Tuple of (day, month, state_name, year)
         """
         days = range(1, 32)  # 1-31
-        months = range(1, 13)  # 1-12
+        months = range(self.start_month, self.end_month + 1)  # Month range
         years = range(self.start_year, self.end_year + 1)
         
         # Use itertools.product for efficient combination generation
@@ -99,12 +111,12 @@ class CombinationGenerator:
             return None
         
         days = list(range(1, 32))
-        months = list(range(1, 13))
+        months = list(range(self.start_month, self.end_month + 1))
         years = list(range(self.start_year, self.end_year + 1))
         
         states_count = len(self.states)
         years_count = len(years)
-        months_count = 12
+        months_count = len(months)
         
         # Calculate indices
         day_idx = index // (months_count * states_count * years_count)
@@ -133,7 +145,7 @@ class CombinationGenerator:
         """
         if day < 1 or day > 31:
             return None
-        if month < 1 or month > 12:
+        if month < self.start_month or month > self.end_month:
             return None
         if state not in self.states:
             return None
@@ -141,12 +153,12 @@ class CombinationGenerator:
             return None
         
         days = list(range(1, 32))
-        months = list(range(1, 13))
+        months = list(range(self.start_month, self.end_month + 1))
         years = list(range(self.start_year, self.end_year + 1))
         
         states_count = len(self.states)
         years_count = len(years)
-        months_count = 12
+        months_count = len(months)
         
         day_idx = days.index(day)
         month_idx = months.index(month)

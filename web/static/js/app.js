@@ -155,20 +155,41 @@ class CURPApp {
         const formData = new FormData();
         formData.append('file', this.uploadedFile);
 
+        // Upload to all VPSs
+        const vpsIPs = API_CONFIG.vpsIPs || [this.apiBaseURL];
+        const uploadPromises = vpsIPs.map(async (vpsIP) => {
+            try {
+                const response = await fetch(`${vpsIP}/api/upload`, {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.error || `Upload failed on ${vpsIP}`);
+                }
+
+                return { vpsIP, filename: data.filename, success: true };
+            } catch (error) {
+                console.error(`Upload error on ${vpsIP}:`, error);
+                return { vpsIP, error: error.message, success: false };
+            }
+        });
+
         try {
-            const response = await fetch(`${this.apiBaseURL}/api/upload`, {
-                method: 'POST',
-                body: formData
-            });
-
-            const data = await response.json();
-
-            if (!response.ok) {
-                throw new Error(data.error || 'Upload failed');
+            const results = await Promise.all(uploadPromises);
+            const failed = results.filter(r => !r.success);
+            
+            if (failed.length > 0) {
+                const failedVPSs = failed.map(r => r.vpsIP).join(', ');
+                throw new Error(`Upload failed on: ${failedVPSs}`);
             }
 
-            this.showMessage('File uploaded successfully', 'success');
-            return data.filename;
+            // All uploads succeeded - use filename from first VPS (should be same for all)
+            const filename = results[0].filename;
+            this.showMessage(`File uploaded successfully to ${results.length} VPS(s)`, 'success');
+            return filename;
         } catch (error) {
             this.showMessage(`Upload error: ${error.message}`, 'error');
             return null;
@@ -191,7 +212,7 @@ class CURPApp {
         }
     }
 
-    async startSearchOnVPS(vpsIP, filename, yearStart, yearEnd, startRow, endRow, lastPersonYearStart, lastPersonYearEnd) {
+    async startSearchOnVPS(vpsIP, filename, yearStart, yearEnd, startRow, endRow, lastPersonYearStart, lastPersonYearEnd, lastPersonMonthStart, lastPersonMonthEnd) {
         try {
             const requestBody = {
                 filename: filename,
@@ -205,6 +226,12 @@ class CURPApp {
             if (lastPersonYearStart !== undefined && lastPersonYearEnd !== undefined) {
                 requestBody.last_person_year_start = lastPersonYearStart;
                 requestBody.last_person_year_end = lastPersonYearEnd;
+            }
+            
+            // Add last person month range if provided (for 1-year range split)
+            if (lastPersonMonthStart !== undefined && lastPersonMonthEnd !== undefined) {
+                requestBody.last_person_month_start = lastPersonMonthStart;
+                requestBody.last_person_month_end = lastPersonMonthEnd;
             }
             
             const response = await fetch(`${vpsIP}/api/start`, {
@@ -222,9 +249,14 @@ class CURPApp {
                 throw new Error(errorMsg);
             }
 
-            const yearRangeInfo = (lastPersonYearStart !== undefined) 
-                ? ` (last person: ${lastPersonYearStart}-${lastPersonYearEnd})`
-                : '';
+            let yearRangeInfo = '';
+            if (lastPersonYearStart !== undefined) {
+                yearRangeInfo = ` (last person: ${lastPersonYearStart}-${lastPersonYearEnd}`;
+                if (lastPersonMonthStart !== undefined) {
+                    yearRangeInfo += `, months ${lastPersonMonthStart}-${lastPersonMonthEnd}`;
+                }
+                yearRangeInfo += ')';
+            }
             console.log(`Started job ${data.job_id} on ${vpsIP} for rows ${startRow}-${endRow}${yearRangeInfo}`);
             return data;
         } catch (error) {
@@ -275,29 +307,57 @@ class CURPApp {
             const personsPerVPS = Math.floor(totalRows / 2);
             const lastPersonIndex = totalRows;
             const yearRange = yearEnd - yearStart + 1;
-            const midYear = Math.floor(yearRange / 2) + yearStart;
             
-            // VPS 1: First half persons + first half of last person's year range
-            rowRanges.push({
-                startRow: 1,
-                endRow: lastPersonIndex, // Include last person
-                vpsIP: vpsIPs[0],
-                rowCount: lastPersonIndex,
-                lastPersonYearStart: yearStart,
-                lastPersonYearEnd: midYear - 1
-            });
-            
-            // VPS 2: Second half persons + second half of last person's year range
-            rowRanges.push({
-                startRow: lastPersonIndex,
-                endRow: lastPersonIndex, // Only last person
-                vpsIP: vpsIPs[1],
-                rowCount: 1,
-                lastPersonYearStart: midYear,
-                lastPersonYearEnd: yearEnd
-            });
-            
-            this.showMessage(`Distributing ${totalRows} rows (odd): ${personsPerVPS} persons each + last person split (${yearStart}-${midYear-1} / ${midYear}-${yearEnd})`, 'info');
+            // Handle edge case: if year range is 1, split by months (6 months each)
+            if (yearRange === 1) {
+                // VPS 1: First half persons + first 6 months of last person's year
+                rowRanges.push({
+                    startRow: 1,
+                    endRow: lastPersonIndex,
+                    vpsIP: vpsIPs[0],
+                    rowCount: lastPersonIndex,
+                    lastPersonYearStart: yearStart,
+                    lastPersonYearEnd: yearEnd,
+                    lastPersonMonthStart: 1,
+                    lastPersonMonthEnd: 6
+                });
+                // VPS 2: Second half persons + last 6 months of last person's year
+                rowRanges.push({
+                    startRow: lastPersonIndex,
+                    endRow: lastPersonIndex,
+                    vpsIP: vpsIPs[1],
+                    rowCount: 1,
+                    lastPersonYearStart: yearStart,
+                    lastPersonYearEnd: yearEnd,
+                    lastPersonMonthStart: 7,
+                    lastPersonMonthEnd: 12
+                });
+                this.showMessage(`Distributing ${totalRows} rows (odd, 1-year range): Split by months (1-6 / 7-12)`, 'info');
+            } else {
+                const midYear = Math.floor(yearRange / 2) + yearStart;
+                
+                // VPS 1: First half persons + first half of last person's year range
+                rowRanges.push({
+                    startRow: 1,
+                    endRow: lastPersonIndex, // Include last person
+                    vpsIP: vpsIPs[0],
+                    rowCount: lastPersonIndex,
+                    lastPersonYearStart: yearStart,
+                    lastPersonYearEnd: midYear - 1
+                });
+                
+                // VPS 2: Second half persons + second half of last person's year range
+                rowRanges.push({
+                    startRow: lastPersonIndex,
+                    endRow: lastPersonIndex, // Only last person
+                    vpsIP: vpsIPs[1],
+                    rowCount: 1,
+                    lastPersonYearStart: midYear,
+                    lastPersonYearEnd: yearEnd
+                });
+                
+                this.showMessage(`Distributing ${totalRows} rows (odd): ${personsPerVPS} persons each + last person split (${yearStart}-${midYear-1} / ${midYear}-${yearEnd})`, 'info');
+            }
         } else {
             // Normal distribution (even number or more than 2 VPSs)
             const rowsPerVPS = Math.ceil(totalRows / vpsIPs.length);
@@ -327,7 +387,9 @@ class CURPApp {
                     range.startRow, 
                     range.endRow,
                     range.lastPersonYearStart,
-                    range.lastPersonYearEnd
+                    range.lastPersonYearEnd,
+                    range.lastPersonMonthStart,
+                    range.lastPersonMonthEnd
                 )
             );
             
