@@ -68,7 +68,7 @@ class BrowserAutomation:
         
         # Now start Playwright - it should work in a clean thread
         try:
-        self.playwright = sync_playwright().start()
+            self.playwright = sync_playwright().start()
             logger.debug("Playwright started successfully")
         except Exception as e:
             error_msg = str(e).lower()
@@ -100,26 +100,26 @@ class BrowserAutomation:
         retry_delay = 3
         
         for attempt in range(max_retries):
-        try:
-            # Use 'load' instead of 'networkidle' for faster loading
+            try:
+                # Use 'load' instead of 'networkidle' for faster loading
                 # Increase timeout to 90 seconds
                 self.page.goto(self.url, wait_until='load', timeout=90000)
                 time.sleep(2.0)  # Page load wait
-            
-            # Click on "Datos Personales" tab to access the form
-            try:
-                # Wait for the tab to be available
-                self.page.wait_for_selector('a[href="#tab-02"]', timeout=15000)
-                # Click the "Datos Personales" tab
-                self.page.click('a[href="#tab-02"]')
+                
+                # Click on "Datos Personales" tab to access the form
+                try:
+                    # Wait for the tab to be available
+                    self.page.wait_for_selector('a[href="#tab-02"]', timeout=15000)
+                    # Click the "Datos Personales" tab
+                    self.page.click('a[href="#tab-02"]')
                     time.sleep(0.4)  # Tab switch delay
-            except Exception as e:
-                print(f"Warning: Could not click 'Datos Personales' tab: {e}")
+                except Exception as e:
+                    print(f"Warning: Could not click 'Datos Personales' tab: {e}")
                 
                 # Success - break out of retry loop
                 break
                 
-        except Exception as e:
+            except Exception as e:
                 if attempt < max_retries - 1:
                     print(f"Error navigating to {self.url} (attempt {attempt + 1}/{max_retries}): {e}")
                     print(f"Retrying in {retry_delay} seconds...")
@@ -127,7 +127,7 @@ class BrowserAutomation:
                     retry_delay *= 1.5  # Exponential backoff
                 else:
                     print(f"Error navigating to {self.url} after {max_retries} attempts: {e}")
-            raise
+                    raise
     
     def close_browser(self):
         """Close browser and cleanup with enhanced error handling and logging."""
@@ -478,8 +478,8 @@ class BrowserAutomation:
                 page_title = self.page.title()
                 if 'error' in page_title.lower() or 'not found' in page_title.lower():
                     has_unrecognized = True
-        except:
-            pass
+            except:
+                pass
             
             # Return True only if we have unrecognized errors AND not known errors
             return has_unrecognized and not has_known_error
@@ -686,13 +686,13 @@ class BrowserAutomation:
                         try:
                             submit_button = self.page.locator('#tab-02 form button[type="submit"]').first
                             if submit_button.count() > 0:
-                    submit_button.click()
+                                submit_button.click()
                                 self._human_like_delay(0.3, 0.6)
-                else:
-                    self.page.keyboard.press('Enter')
+                            else:
+                                self.page.keyboard.press('Enter')
                                 self._human_like_delay(0.3, 0.6)
                         except:
-                self.page.keyboard.press('Enter')
+                            self.page.keyboard.press('Enter')
                             self._human_like_delay(0.3, 0.6)
                         search_start_time = time.time()  # Reset start time
                     else:
