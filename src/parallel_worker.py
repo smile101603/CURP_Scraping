@@ -89,13 +89,23 @@ class ParallelWorker:
         
         try:
             # Initialize browser for this worker
-            browser_automation = BrowserAutomation(
-                headless=self.headless,
-                min_delay=self.min_delay,
-                max_delay=self.max_delay,
-                pause_every_n=self.pause_every_n,
-                pause_duration=self.pause_duration
-            )
+            try:
+                browser_automation = BrowserAutomation(
+                    headless=self.headless,
+                    min_delay=self.min_delay,
+                    max_delay=self.max_delay,
+                    pause_every_n=self.pause_every_n,
+                    pause_duration=self.pause_duration
+                )
+            except Exception as e:
+                logger.error(f"Worker {worker_id}: Failed to initialize BrowserAutomation: {e}")
+                # Ensure cleanup even if initialization fails
+                if browser_automation:
+                    try:
+                        browser_automation.close_browser()
+                    except Exception as cleanup_error:
+                        logger.error(f"Worker {worker_id}: Error during initialization cleanup: {cleanup_error}")
+                raise
             
             # Retry browser startup if it fails
             max_start_retries = 3
@@ -113,10 +123,22 @@ class ParallelWorker:
                         time.sleep(5)
                     else:
                         logger.error(f"Worker {worker_id}: Failed to start browser after {max_start_retries} attempts: {e}")
+                        # Ensure cleanup before raising
+                        if browser_automation:
+                            try:
+                                browser_automation.close_browser()
+                            except Exception as cleanup_error:
+                                logger.error(f"Worker {worker_id}: Error during startup failure cleanup: {cleanup_error}")
                         raise
             
             if not browser_started:
                 logger.error(f"Worker {worker_id}: Could not start browser, exiting")
+                # Ensure cleanup
+                if browser_automation:
+                    try:
+                        browser_automation.close_browser()
+                    except Exception as cleanup_error:
+                        logger.error(f"Worker {worker_id}: Error during cleanup after startup failure: {cleanup_error}")
                 return
             
             worker_search_count = 0
@@ -309,12 +331,26 @@ class ParallelWorker:
             logger.info(f"Worker {worker_id}: Completed {worker_search_count} searches")
         
         except Exception as e:
-            logger.error(f"Worker {worker_id}: Fatal error: {e}")
+            logger.error(f"Worker {worker_id}: Fatal error: {e}", exc_info=True)
+            # Ensure cleanup on fatal error
+            if browser_automation:
+                try:
+                    logger.info(f"Worker {worker_id}: Cleaning up browser after fatal error...")
+                    browser_automation.close_browser()
+                except Exception as cleanup_error:
+                    logger.error(f"Worker {worker_id}: Error during fatal error cleanup: {cleanup_error}")
         
         finally:
+            # Enhanced cleanup - ensure browser is always closed
             if browser_automation:
-                browser_automation.close_browser()
-                logger.info(f"Worker {worker_id}: Browser closed")
+                try:
+                    logger.debug(f"Worker {worker_id}: Final cleanup - closing browser...")
+                    browser_automation.close_browser()
+                    logger.info(f"Worker {worker_id}: Browser closed successfully")
+                except Exception as cleanup_error:
+                    logger.error(f"Worker {worker_id}: Error during final cleanup: {cleanup_error}", exc_info=True)
+            else:
+                logger.debug(f"Worker {worker_id}: No browser instance to clean up")
     
     def _save_match_immediately(self, person_id: int, match_data: Dict, all_results: List[Dict]):
         """
@@ -464,10 +500,14 @@ class ParallelWorker:
         
         # Wait for all threads to complete (with longer timeout)
         logger.info(f"Waiting for {len(threads)} worker threads to complete...")
-        for thread in threads:
+        for idx, thread in enumerate(threads, 1):
+            worker_num = idx  # Worker number for logging
             thread.join(timeout=30)  # Increased timeout to 30 seconds
             if thread.is_alive():
-                logger.warning(f"Thread {thread.name} did not complete within timeout")
+                logger.warning(f"Worker {worker_num}: Thread did not complete within 30s timeout. "
+                             f"Browser cleanup may be incomplete. Thread will continue in background.")
+            else:
+                logger.debug(f"Worker {worker_num}: Thread completed successfully")
         
         # Final check - ensure queue is truly empty
         remaining_items = combinations_queue.qsize()

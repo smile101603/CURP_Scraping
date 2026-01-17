@@ -8,12 +8,23 @@ import os
 import logging
 import json
 import requests
+import time
+from datetime import datetime
 from pathlib import Path
 from . import app, socketio
 from .search_manager import search_manager
 from .models import JobStatus
 from excel_handler import ExcelHandler
 from search_runner import run_search_async
+
+# Try to import psutil for system metrics, fallback if not available
+try:
+    import psutil
+    PSUTIL_AVAILABLE = True
+except ImportError:
+    PSUTIL_AVAILABLE = False
+    logger = logging.getLogger(__name__)
+    logger.warning("psutil not available - system metrics will be limited")
 
 logger = logging.getLogger(__name__)
 
@@ -34,11 +45,177 @@ def allowed_file(filename):
 
 @app.route('/api/health', methods=['GET'])
 def health_check():
-    """Health check endpoint."""
-    return jsonify({
-        'status': 'healthy',
-        'service': 'CURP Automation API'
-    }), 200
+    """Enhanced health check endpoint with detailed server status."""
+    try:
+        active_jobs = len([j for j in search_manager.jobs.values() 
+                          if j.status == JobStatus.RUNNING])
+        total_jobs = len(search_manager.jobs)
+        
+        # Get system metrics if available
+        memory_info = {}
+        disk_info = {}
+        if PSUTIL_AVAILABLE:
+            try:
+                memory = psutil.virtual_memory()
+                memory_info = {
+                    'percent': memory.percent,
+                    'total_gb': round(memory.total / (1024**3), 2),
+                    'available_gb': round(memory.available / (1024**3), 2)
+                }
+            except Exception as e:
+                logger.warning(f"Could not get memory info: {e}")
+            
+            try:
+                disk = psutil.disk_usage('/')
+                disk_info = {
+                    'percent': disk.percent,
+                    'total_gb': round(disk.total / (1024**3), 2),
+                    'free_gb': round(disk.free / (1024**3), 2)
+                }
+            except Exception as e:
+                logger.warning(f"Could not get disk info: {e}")
+        
+        # Get uptime from app.py if available
+        try:
+            from app import start_time
+            uptime_seconds = time.time() - start_time if start_time else None
+        except:
+            uptime_seconds = None
+        
+        return jsonify({
+            'status': 'healthy',
+            'service': 'CURP Automation API',
+            'uptime_seconds': uptime_seconds,
+            'active_jobs': active_jobs,
+            'total_jobs': total_jobs,
+            'memory': memory_info if memory_info else None,
+            'disk': disk_info if disk_info else None,
+            'timestamp': datetime.now().isoformat()
+        }), 200
+    except Exception as e:
+        logger.error(f"Health check error: {e}", exc_info=True)
+        return jsonify({
+            'status': 'error',
+            'error': str(e),
+            'timestamp': datetime.now().isoformat()
+        }), 500
+
+
+@app.route('/api/status', methods=['GET'])
+def get_status():
+    """Get detailed server status with comprehensive metrics."""
+    try:
+        # Job statistics
+        jobs_by_status = {}
+        for status in JobStatus:
+            jobs_by_status[status.value] = len([j for j in search_manager.jobs.values() 
+                                                if j.status == status])
+        
+        active_jobs = jobs_by_status.get('running', 0)
+        total_jobs = len(search_manager.jobs)
+        
+        # Get system metrics
+        system_info = {}
+        if PSUTIL_AVAILABLE:
+            try:
+                # CPU
+                cpu_percent = psutil.cpu_percent(interval=0.1)
+                
+                # Memory
+                memory = psutil.virtual_memory()
+                
+                # Disk
+                disk = psutil.disk_usage('/')
+                
+                # Network (if available)
+                network_info = {}
+                try:
+                    net_io = psutil.net_io_counters()
+                    network_info = {
+                        'bytes_sent': net_io.bytes_sent,
+                        'bytes_recv': net_io.bytes_recv
+                    }
+                except:
+                    pass
+                
+                system_info = {
+                    'cpu_percent': cpu_percent,
+                    'memory': {
+                        'percent': memory.percent,
+                        'total_gb': round(memory.total / (1024**3), 2),
+                        'available_gb': round(memory.available / (1024**3), 2),
+                        'used_gb': round(memory.used / (1024**3), 2)
+                    },
+                    'disk': {
+                        'percent': disk.percent,
+                        'total_gb': round(disk.total / (1024**3), 2),
+                        'free_gb': round(disk.free / (1024**3), 2),
+                        'used_gb': round(disk.used / (1024**3), 2)
+                    },
+                    'network': network_info if network_info else None
+                }
+            except Exception as e:
+                logger.warning(f"Could not get system info: {e}")
+        
+        # Get uptime
+        try:
+            from app import start_time
+            uptime_seconds = time.time() - start_time if start_time else None
+        except:
+            uptime_seconds = None
+        
+        return jsonify({
+            'status': 'operational',
+            'service': 'CURP Automation API',
+            'uptime_seconds': uptime_seconds,
+            'jobs': {
+                'total': total_jobs,
+                'active': active_jobs,
+                'by_status': jobs_by_status
+            },
+            'system': system_info if system_info else None,
+            'timestamp': datetime.now().isoformat()
+        }), 200
+    except Exception as e:
+        logger.error(f"Status endpoint error: {e}", exc_info=True)
+        return jsonify({
+            'status': 'error',
+            'error': str(e),
+            'timestamp': datetime.now().isoformat()
+        }), 500
+
+
+@app.route('/api/file-info', methods=['GET'])
+def get_file_info():
+    """Get file information including row count."""
+    try:
+        filename = request.args.get('filename')
+        if not filename:
+            return jsonify({'error': 'Filename required'}), 400
+        
+        file_path = UPLOAD_FOLDER / filename
+        if not file_path.exists():
+            return jsonify({'error': 'File not found'}), 404
+        
+        # Read file to get row count
+        try:
+            input_df = excel_handler.read_input(str(file_path))
+            row_count = len(input_df)
+            
+            logger.info(f"File info requested: {filename} - {row_count} rows")
+            
+            return jsonify({
+                'filename': filename,
+                'row_count': row_count,
+                'file_size': file_path.stat().st_size
+            }), 200
+        except Exception as e:
+            logger.error(f"Error reading file {filename}: {e}", exc_info=True)
+            return jsonify({'error': f'Error reading file: {str(e)}'}), 500
+    
+    except Exception as e:
+        logger.error(f"Error in file-info endpoint: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
 
 
 @app.route('/api/upload', methods=['POST'])
@@ -123,6 +300,24 @@ def start_search():
         if year_start < 1900 or year_end > 2100:
             return jsonify({'error': 'Year range must be between 1900 and 2100'}), 400
         
+        # Get optional row range (for VPS-aware distribution)
+        start_row = data.get('start_row')  # 1-based
+        end_row = data.get('end_row')  # 1-based
+        
+        # Validate row range if provided
+        if start_row is not None or end_row is not None:
+            if start_row is None or end_row is None:
+                return jsonify({'error': 'Both start_row and end_row must be provided together'}), 400
+            try:
+                start_row = int(start_row)
+                end_row = int(end_row)
+            except (ValueError, TypeError):
+                return jsonify({'error': 'start_row and end_row must be integers'}), 400
+            if start_row < 1:
+                return jsonify({'error': 'start_row must be >= 1'}), 400
+            if end_row < start_row:
+                return jsonify({'error': 'end_row must be >= start_row'}), 400
+        
         # Check if file exists
         file_path = UPLOAD_FOLDER / filename
         if not file_path.exists():
@@ -131,60 +326,27 @@ def start_search():
         # Create job
         job_id = search_manager.create_job(year_start, year_end, filename)
         
-        # Start search in background
-        run_search_async(job_id, str(file_path), year_start, year_end)
+        # Prepare config overrides with row range if provided
+        config_overrides = {}
+        if start_row is not None and end_row is not None:
+            config_overrides['start_row'] = start_row
+            config_overrides['end_row'] = end_row
+            logger.info(f"Job {job_id}: Starting with row range {start_row}-{end_row}")
         
-        # If VPS distribution is enabled, trigger other VPSs to start the same job
-        try:
-            from pathlib import Path
-            config_path = Path('./config/settings.json')
-            if config_path.exists():
-                with open(config_path, 'r', encoding='utf-8') as f:
-                    config = json.load(f)
-                    vps_config = config.get('vps', {})
-                    vps_enabled = vps_config.get('enabled', False)
-                    vps_ips = vps_config.get('vps_ips', [])
-                    current_vps_index = vps_config.get('current_vps_index', 0)
-                    
-                    if vps_enabled and len(vps_ips) >= 2:
-                        # Trigger other VPSs to start the same job
-                        for idx, vps_ip in enumerate(vps_ips):
-                            if idx != current_vps_index:
-                                try:
-                                    # First, upload the file to the other VPS
-                                    with open(file_path, 'rb') as f:
-                                        files = {'file': (filename, f, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')}
-                                        upload_url = f"http://{vps_ip}:5000/api/upload"
-                                        upload_response = requests.post(upload_url, files=files, timeout=30)
-                                        
-                                        if upload_response.status_code == 200:
-                                            upload_data = upload_response.json()
-                                            uploaded_filename = upload_data.get('filename', filename)
-                                            
-                                            # Then start the job on the other VPS
-                                            start_url = f"http://{vps_ip}:5000/api/start"
-                                            start_data = {
-                                                'filename': uploaded_filename,
-                                                'year_start': year_start,
-                                                'year_end': year_end
-                                            }
-                                            start_response = requests.post(start_url, json=start_data, timeout=10)
-                                            
-                                            if start_response.status_code == 200:
-                                                logger.info(f"Successfully triggered job on VPS {idx} ({vps_ip})")
-                                            else:
-                                                logger.warning(f"Failed to start job on VPS {idx} ({vps_ip}): {start_response.status_code} - {start_response.text}")
-                                        else:
-                                            logger.warning(f"Failed to upload file to VPS {idx} ({vps_ip}): {upload_response.status_code} - {upload_response.text}")
-                                except Exception as e:
-                                    logger.error(f"Error triggering VPS {idx} ({vps_ip}): {e}")
-        except Exception as e:
-            logger.warning(f"Error triggering other VPSs (job will continue on this VPS): {e}")
+        # Start search in background
+        run_search_async(job_id, str(file_path), year_start, year_end, config_overrides)
+        
+        logger.info(f"Job {job_id} started: file={filename}, year_range={year_start}-{year_end}, "
+                   f"row_range={'{}-{}'.format(start_row, end_row) if start_row else 'all'}")
         
         return jsonify({
-            'message': 'Search started',
-            'job_id': job_id
+            'job_id': job_id,
+            'message': 'Search job started',
+            'row_range': {'start': start_row, 'end': end_row} if start_row else None
         }), 200
+        
+        # Note: VPS distribution is now handled by frontend
+        # Removed automatic VPS triggering - frontend calculates and sends to each VPS
     
     except Exception as e:
         logger.error(f"Error starting search: {e}", exc_info=True)

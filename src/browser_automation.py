@@ -4,9 +4,13 @@ Handles browser automation using Playwright to interact with the CURP portal.
 """
 import time
 import random
+import asyncio
+import logging
 from typing import Optional, Dict
 from playwright.sync_api import sync_playwright, Page, Browser, BrowserContext
 from state_codes import get_state_code
+
+logger = logging.getLogger(__name__)
 
 
 class BrowserAutomation:
@@ -45,20 +49,33 @@ class BrowserAutomation:
     
     def start_browser(self):
         """Start browser and navigate to CURP page."""
-        # Workers run in separate threads, so Playwright can be used directly
-        # The asyncio issue only occurs in the main thread with eventlet
-        # Since we're using threading mode for Flask-SocketIO, workers are clean threads
+        # Clear any asyncio event loop in this thread
+        # Python 3.12+ may create default event loops in threads
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                logger.warning("Found running asyncio event loop, closing it before starting Playwright")
+                loop.close()
+        except RuntimeError:
+            # No event loop exists, which is what we want
+            pass
+        
+        # Ensure no event loop policy is set for this thread
+        try:
+            asyncio.set_event_loop(None)
+        except Exception as e:
+            logger.debug(f"Could not clear event loop (may not exist): {e}")
+        
+        # Now start Playwright - it should work in a clean thread
         try:
             self.playwright = sync_playwright().start()
+            logger.debug("Playwright started successfully")
         except Exception as e:
-            # If we get an asyncio error, it means we're in the main thread with an event loop
-            # In that case, we need to ensure we're not in an asyncio context
             error_msg = str(e).lower()
             if 'asyncio' in error_msg or 'event loop' in error_msg:
-                # This shouldn't happen in worker threads, but handle it just in case
-                # Try to use Playwright directly anyway - the error might be a false positive
-                # If it still fails, the worker will retry
-                raise RuntimeError(f"Playwright asyncio conflict detected. This should not happen in worker threads. Error: {e}")
+                logger.error(f"Playwright asyncio conflict: {e}")
+                raise RuntimeError(f"Cannot start Playwright: asyncio conflict. "
+                                 f"Worker thread may have inherited asyncio context. Error: {e}")
             else:
                 # Some other error, re-raise it
                 raise
@@ -113,54 +130,73 @@ class BrowserAutomation:
                     raise
     
     def close_browser(self):
-        """Close browser and cleanup."""
+        """Close browser and cleanup with enhanced error handling and logging."""
+        cleanup_errors = []
+        
         # Close in reverse order with proper error handling
         # This helps avoid asyncio cleanup warnings on Windows
         # Note: RuntimeError warnings from asyncio on Windows are harmless
-        try:
-            if self.page:
-                try:
-                    self.page.close()
-                    time.sleep(0.1)  # Small delay between closes
-                except Exception:
-                    # Ignore errors during page close
-                    pass
-        except Exception:
-            pass
         
-        try:
-            if self.context:
-                try:
-                    self.context.close()
-                    time.sleep(0.1)  # Small delay between closes
-                except Exception:
-                    # Ignore errors during context close
-                    pass
-        except Exception:
-            pass
+        # Close page
+        if self.page:
+            try:
+                logger.debug("Closing browser page...")
+                self.page.close()
+                time.sleep(0.1)  # Small delay between closes
+                logger.debug("Browser page closed successfully")
+            except Exception as e:
+                error_msg = f"Error closing page: {e}"
+                logger.warning(error_msg)
+                cleanup_errors.append(error_msg)
         
-        try:
-            if self.browser:
-                try:
-                    self.browser.close()
-                    time.sleep(0.2)  # Longer delay before stopping playwright
-                except Exception:
-                    # Ignore errors during browser close
-                    pass
-        except Exception:
-            pass
+        # Close context
+        if self.context:
+            try:
+                logger.debug("Closing browser context...")
+                self.context.close()
+                time.sleep(0.1)  # Small delay between closes
+                logger.debug("Browser context closed successfully")
+            except Exception as e:
+                error_msg = f"Error closing context: {e}"
+                logger.warning(error_msg)
+                cleanup_errors.append(error_msg)
         
-        try:
-            if self.playwright:
-                try:
-                    # Stop playwright - this might trigger asyncio cleanup warnings on Windows
-                    # but they are harmless and can be safely ignored
-                    self.playwright.stop()
-                except Exception:
-                    # Ignore errors during playwright stop
-                    pass
-        except Exception:
-            pass
+        # Close browser
+        if self.browser:
+            try:
+                logger.debug("Closing browser...")
+                self.browser.close()
+                time.sleep(0.2)  # Longer delay before stopping playwright
+                logger.debug("Browser closed successfully")
+            except Exception as e:
+                error_msg = f"Error closing browser: {e}"
+                logger.warning(error_msg)
+                cleanup_errors.append(error_msg)
+        
+        # Stop playwright
+        if self.playwright:
+            try:
+                logger.debug("Stopping Playwright...")
+                # Stop playwright - this might trigger asyncio cleanup warnings on Windows
+                # but they are harmless and can be safely ignored
+                self.playwright.stop()
+                logger.debug("Playwright stopped successfully")
+            except Exception as e:
+                error_msg = f"Error stopping Playwright: {e}"
+                logger.warning(error_msg)
+                cleanup_errors.append(error_msg)
+        
+        # Reset references
+        self.page = None
+        self.context = None
+        self.browser = None
+        self.playwright = None
+        self.form_ready = False
+        
+        if cleanup_errors:
+            logger.warning(f"Browser cleanup completed with {len(cleanup_errors)} error(s): {cleanup_errors}")
+        else:
+            logger.info("Browser cleanup completed successfully")
     
     def _random_delay(self):
         """Apply random delay between searches."""

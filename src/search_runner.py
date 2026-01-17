@@ -128,6 +128,25 @@ def run_search(job_id: str, input_file_path: str, year_start: int, year_end: int
         import pandas as pd
         input_df = pd.read_excel(input_path, engine='openpyxl')
         
+        # Get row range from config_overrides if provided (VPS-aware mode)
+        start_row = None
+        end_row = None
+        if config_overrides:
+            start_row = config_overrides.get('start_row')  # 1-based
+            end_row = config_overrides.get('end_row')  # 1-based
+        
+        # Filter rows if row range specified (VPS-aware mode)
+        original_row_count = len(input_df)
+        if start_row is not None and end_row is not None:
+            # Convert to 0-based indexing for pandas
+            start_idx = max(0, start_row - 1)
+            end_idx = min(len(input_df), end_row)
+            input_df = input_df.iloc[start_idx:end_idx].copy()
+            logger.info(f"VPS-aware mode: Processing rows {start_row}-{end_row} "
+                       f"({len(input_df)} rows out of {original_row_count} total)")
+        else:
+            logger.info(f"Processing all rows: {len(input_df)} person(s)")
+        
         # Validate columns
         required_columns = ['first_name', 'last_name_1', 'last_name_2', 'gender']
         missing_columns = [col for col in required_columns if col not in input_df.columns]
@@ -137,7 +156,11 @@ def run_search(job_id: str, input_file_path: str, year_start: int, year_end: int
         
         # Add person_id if not present
         if 'person_id' not in input_df.columns:
-            input_df.insert(0, 'person_id', range(1, len(input_df) + 1))
+            # Adjust person_id based on row range if applicable
+            if start_row is not None:
+                input_df.insert(0, 'person_id', range(start_row, start_row + len(input_df)))
+            else:
+                input_df.insert(0, 'person_id', range(1, len(input_df) + 1))
         
         logger.info(f"Loaded {len(input_df)} person(s) from input file")
         

@@ -6,7 +6,10 @@ import sys
 import os
 import json
 import logging
+import time
+import threading
 from pathlib import Path
+from datetime import datetime
 
 # Add src directory to path
 sys.path.insert(0, str(Path(__file__).parent / 'src'))
@@ -29,11 +32,13 @@ class WerkzeugErrorFilter(logging.Filter):
             return False
         return True
 
+# Enhanced logging configuration for headless operation
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    format='%(asctime)s - %(name)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s',
     handlers=[
-        logging.FileHandler('logs/api.log'),
+        logging.FileHandler('logs/api.log', encoding='utf-8'),
+        logging.FileHandler('logs/server.log', encoding='utf-8'),
         logging.StreamHandler(sys.stdout)
     ]
 )
@@ -43,6 +48,8 @@ werkzeug_logger = logging.getLogger('werkzeug')
 werkzeug_logger.addFilter(WerkzeugErrorFilter())
 
 logger = logging.getLogger(__name__)
+server_logger = logging.getLogger('server')
+api_logger = logging.getLogger('api')
 
 # Import API app
 from api import app, socketio
@@ -56,8 +63,32 @@ def load_config():
     return {}
 
 
+# Global start time for uptime calculation
+start_time = None
+
+def log_health_status():
+    """Log server health status periodically."""
+    while True:
+        time.sleep(300)  # Every 5 minutes
+        try:
+            from api.search_manager import search_manager
+            from api.models import JobStatus
+            
+            active_jobs = len([j for j in search_manager.jobs.values() 
+                             if j.status == JobStatus.RUNNING])
+            total_jobs = len(search_manager.jobs)
+            uptime = time.time() - start_time if start_time else 0
+            
+            server_logger.info(f"Health Check - Active Jobs: {active_jobs}/{total_jobs}, "
+                             f"Uptime: {uptime:.0f}s")
+        except Exception as e:
+            server_logger.error(f"Health check error: {e}", exc_info=True)
+
 def main():
     """Run the Flask application."""
+    global start_time
+    start_time = time.time()
+    
     try:
         config = load_config()
         api_config = config.get('api', {})
@@ -66,8 +97,17 @@ def main():
         host = api_config.get('host', '0.0.0.0')
         debug = api_config.get('debug', False)
         
-        logger.info(f"Starting CURP Automation API server on {host}:{port}")
-        logger.info(f"Debug mode: {debug}")
+        server_logger.info("=" * 60)
+        server_logger.info("Starting CURP Automation API Server")
+        server_logger.info(f"Host: {host}, Port: {port}")
+        server_logger.info(f"Debug mode: {debug}")
+        server_logger.info(f"Start time: {datetime.now().isoformat()}")
+        server_logger.info("=" * 60)
+        
+        # Start health logging thread
+        health_thread = threading.Thread(target=log_health_status, daemon=True)
+        health_thread.start()
+        server_logger.info("Health monitoring thread started")
         
         # Run the application
         socketio.run(
@@ -79,8 +119,10 @@ def main():
         )
     
     except KeyboardInterrupt:
+        server_logger.info("Server stopped by user")
         logger.info("Server stopped by user")
     except Exception as e:
+        server_logger.error(f"Error starting server: {e}", exc_info=True)
         logger.error(f"Error starting server: {e}", exc_info=True)
         sys.exit(1)
 

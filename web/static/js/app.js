@@ -175,6 +175,50 @@ class CURPApp {
         }
     }
 
+    async getFileRowCount(filename) {
+        try {
+            const response = await fetch(`${this.apiBaseURL}/api/file-info?filename=${encodeURIComponent(filename)}`);
+            const data = await response.json();
+
+            if (!response.ok) {
+                throw new Error(data.error || 'Failed to get file info');
+            }
+
+            return data.row_count;
+        } catch (error) {
+            console.error(`Error getting file row count: ${error.message}`);
+            return null;
+        }
+    }
+
+    async startSearchOnVPS(vpsIP, filename, yearStart, yearEnd, startRow, endRow) {
+        try {
+            const response = await fetch(`${vpsIP}/api/start`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    filename: filename,
+                    year_start: yearStart,
+                    year_end: yearEnd,
+                    start_row: startRow,
+                    end_row: endRow
+                })
+            });
+
+            const data = await response.json();
+
+            if (!response.ok) {
+                throw new Error(data.error || `Failed to start search on ${vpsIP}`);
+            }
+
+            console.log(`Started job ${data.job_id} on ${vpsIP} for rows ${startRow}-${endRow}`);
+            return data;
+        } catch (error) {
+            console.error(`Error starting search on ${vpsIP}: ${error.message}`);
+            throw error;
+        }
+    }
+
     async startSearch() {
         if (!this.uploadedFile) {
             this.showMessage('Please upload a file first', 'error');
@@ -200,28 +244,59 @@ class CURPApp {
             return;
         }
 
-        // Start search
-        try {
-            const response = await fetch(`${this.apiBaseURL}/api/start`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    filename: filename,
-                    year_start: yearStart,
-                    year_end: yearEnd
-                })
+        // Get file row count for VPS distribution
+        const totalRows = await this.getFileRowCount(filename);
+        if (!totalRows || totalRows === 0) {
+            this.showMessage('Could not determine file row count', 'error');
+            return;
+        }
+
+        // Calculate row ranges for each VPS
+        const vpsIPs = API_CONFIG.vpsIPs || [this.apiBaseURL];
+        const rowsPerVPS = Math.ceil(totalRows / vpsIPs.length);
+        const rowRanges = [];
+        
+        for (let i = 0; i < vpsIPs.length; i++) {
+            const startRow = i * rowsPerVPS + 1; // 1-based indexing
+            const endRow = Math.min((i + 1) * rowsPerVPS, totalRows);
+            rowRanges.push({ 
+                startRow, 
+                endRow, 
+                vpsIP: vpsIPs[i],
+                rowCount: endRow - startRow + 1
             });
+        }
 
-            const data = await response.json();
+        this.showMessage(`Distributing ${totalRows} rows across ${vpsIPs.length} VPS(s)...`, 'info');
 
-            if (!response.ok) {
-                throw new Error(data.error || 'Failed to start search');
+        // Send start request to each VPS with its row range
+        try {
+            const promises = rowRanges.map(range => 
+                this.startSearchOnVPS(range.vpsIP, filename, yearStart, yearEnd, range.startRow, range.endRow)
+            );
+            
+            const results = await Promise.allSettled(promises);
+            
+            // Check results
+            const successful = results.filter(r => r.status === 'fulfilled').length;
+            const failed = results.filter(r => r.status === 'rejected').length;
+            
+            if (successful > 0) {
+                // Use first successful job ID for WebSocket subscription
+                const firstSuccess = results.find(r => r.status === 'fulfilled');
+                if (firstSuccess && firstSuccess.value && firstSuccess.value.job_id) {
+                    this.currentJobId = firstSuccess.value.job_id;
+                    this.wsClient.subscribeToJob(this.currentJobId);
+                }
+                
+                if (failed > 0) {
+                    this.showMessage(`Started ${successful} job(s), ${failed} failed`, 'warning');
+                } else {
+                    this.showMessage(`Successfully started ${successful} job(s) across ${vpsIPs.length} VPS(s)`, 'success');
+                }
+            } else {
+                throw new Error('All VPS start requests failed');
             }
-
-            this.currentJobId = data.job_id;
-            this.wsClient.subscribeToJob(this.currentJobId);
             
             // Reset search start time
             this.searchStartTime = Date.now();
