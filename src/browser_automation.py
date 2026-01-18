@@ -697,9 +697,8 @@ class BrowserAutomation:
                 )
                 
                 if has_match_result or has_no_match_modal:
-                    # Results detected - verify they are stable and return immediately
-                    # If results are clearly present, return immediately regardless of loading indicators
-                    # (loading indicators might be leftover UI elements)
+                    # Results detected - verify they are stable
+                    # If results are clearly present, wait briefly then return
                     
                     if has_match_result:
                         # Verify match result is present (check key indicators)
@@ -709,8 +708,10 @@ class BrowserAutomation:
                             'Datos del solicitante' in content
                         )
                         if still_has_match:
-                            # Results are clearly present - return immediately
-                            logger.debug("Match result detected, returning immediately")
+                            # Results are clearly present - wait before proceeding
+                            wait_time = 0.7 + random.uniform(0.3, 0.6)
+                            logger.debug(f"Match result detected, waiting {wait_time:.2f}s before proceeding")
+                            time.sleep(wait_time)
                             return True
                     
                     if has_no_match_modal:
@@ -721,8 +722,10 @@ class BrowserAutomation:
                             self.page.locator('button[data-dismiss="modal"]').count() > 0
                         )
                         if still_has_modal:
-                            # No-match modal is clearly present - return immediately
-                            logger.debug("No-match modal detected, returning immediately")
+                            # No-match modal is clearly present - wait before proceeding
+                            wait_time = 0.7 + random.uniform(0.3, 0.6)
+                            logger.debug(f"No-match modal detected, waiting {wait_time:.2f}s before proceeding")
+                            time.sleep(wait_time)
                             return True
                     
                     # If we detected results but verification failed, wait briefly and re-check
