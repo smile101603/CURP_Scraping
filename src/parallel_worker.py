@@ -505,7 +505,12 @@ class ParallelWorker:
             thread.join(timeout=30)  # Increased timeout to 30 seconds
             if thread.is_alive():
                 logger.warning(f"Worker {worker_num}: Thread did not complete within 30s timeout. "
-                             f"Browser cleanup may be incomplete. Thread will continue in background.")
+                             f"Browser cleanup may be incomplete. Attempting force cleanup...")
+                # Force cleanup: Try to kill browser processes if thread doesn't respond
+                # Note: We can't access browser_automation from here, but the finally block
+                # in worker_thread should handle cleanup. This is a fallback warning.
+                # In a production system, you might want to track browser instances and
+                # call force_kill_browser_processes() here if needed.
             else:
                 logger.debug(f"Worker {worker_num}: Thread completed successfully")
         

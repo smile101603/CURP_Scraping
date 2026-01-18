@@ -46,6 +46,9 @@ class BrowserAutomation:
         
         # Track time for periodic 40-second pause
         self.last_pause_time = time.time()
+        
+        # Track browser process IDs for force cleanup if needed
+        self.browser_process_pids = []
     
     def start_browser(self):
         """Start browser and navigate to CURP page."""
@@ -85,6 +88,15 @@ class BrowserAutomation:
             headless=self.headless,
             args=['--disable-blink-features=AutomationControlled']
         )
+        
+        # Track browser process ID for force cleanup if needed
+        try:
+            if hasattr(self.browser, 'process') and self.browser.process:
+                pid = self.browser.process.pid
+                self.browser_process_pids.append(pid)
+                logger.debug(f"Browser process started with PID: {pid}")
+        except Exception as e:
+            logger.debug(f"Could not track browser process PID: {e}")
         
         # Create context with realistic settings
         self.context = self.browser.new_context(
@@ -192,11 +204,44 @@ class BrowserAutomation:
         self.browser = None
         self.playwright = None
         self.form_ready = False
+        self.browser_process_pids = []
         
         if cleanup_errors:
             logger.warning(f"Browser cleanup completed with {len(cleanup_errors)} error(s): {cleanup_errors}")
         else:
             logger.info("Browser cleanup completed successfully")
+    
+    def force_kill_browser_processes(self):
+        """
+        Force kill browser processes if normal cleanup fails.
+        This is a last resort cleanup method.
+        """
+        if not self.browser_process_pids:
+            return
+        
+        try:
+            import psutil
+            killed_count = 0
+            for pid in self.browser_process_pids:
+                try:
+                    process = psutil.Process(pid)
+                    if process.is_running():
+                        logger.warning(f"Force killing browser process {pid}")
+                        process.kill()
+                        killed_count += 1
+                except psutil.NoSuchProcess:
+                    # Process already dead
+                    pass
+                except Exception as e:
+                    logger.error(f"Error force killing process {pid}: {e}")
+            
+            if killed_count > 0:
+                logger.warning(f"Force killed {killed_count} browser process(es)")
+            self.browser_process_pids = []
+        except ImportError:
+            logger.warning("psutil not available - cannot force kill browser processes")
+        except Exception as e:
+            logger.error(f"Error in force_kill_browser_processes: {e}")
     
     def _random_delay(self):
         """Apply random delay between searches."""
@@ -219,6 +264,112 @@ class BrowserAutomation:
         # Humans type at different speeds, add variable delay
         delay = random.uniform(0.1, 0.2)
         time.sleep(delay)
+    
+    def _type_like_human(self, locator, text: str, clear_first: bool = True):
+        """
+        Type text character by character like a human would.
+        
+        Args:
+            locator: Playwright locator for the input field
+            text: Text to type
+            clear_first: Whether to clear the field first
+        """
+        try:
+            # Click on the field first (humans click before typing)
+            locator.click(timeout=5000)
+            self._human_like_delay(0.1, 0.2)  # Small pause after clicking
+            
+            # Clear field if needed
+            if clear_first:
+                # Select all and delete (like humans do with Ctrl+A or triple-click)
+                self.page.keyboard.press('Control+a')
+                time.sleep(0.05)
+                self.page.keyboard.press('Delete')
+                self._human_like_delay(0.1, 0.15)
+            
+            # Type character by character with variable speed
+            # Use average delay for the whole string, but add occasional pauses
+            avg_delay_ms = random.randint(80, 120)  # Average typing speed
+            
+            # Type the text with variable delays by typing in small chunks
+            # This simulates human typing patterns better than typing all at once
+            chunk_size = random.randint(2, 4)  # Type 2-4 characters at a time
+            i = 0
+            
+            while i < len(text):
+                # Determine chunk size (smaller chunks = more human-like)
+                current_chunk_size = min(chunk_size, len(text) - i)
+                chunk = text[i:i + current_chunk_size]
+                
+                # Variable delay based on character types in chunk
+                chunk_delay = avg_delay_ms
+                if any(c.isdigit() for c in chunk):
+                    chunk_delay = random.randint(100, 150)  # Numbers typed slower
+                elif any(c.isupper() for c in chunk):
+                    chunk_delay = random.randint(120, 180)  # Capitals slower
+                
+                # Occasional longer pause (like thinking or correcting)
+                if random.random() < 0.08:  # 8% chance of longer pause
+                    time.sleep(random.uniform(0.2, 0.5))
+                
+                # Type the chunk
+                self.page.keyboard.type(chunk, delay=chunk_delay)
+                
+                # Small pause between chunks (like humans pause between words/numbers)
+                if i + current_chunk_size < len(text):
+                    time.sleep(random.uniform(0.05, 0.15))
+                
+                i += current_chunk_size
+                # Vary chunk size for next iteration
+                chunk_size = random.randint(2, 4)
+            
+            # Final pause after typing (humans pause to review)
+            self._human_like_delay(0.1, 0.2)
+        except Exception as e:
+            logger.warning(f"Error in human-like typing, falling back to fill: {e}")
+            # Fallback to regular fill if typing fails
+            try:
+                if clear_first:
+                    locator.fill('')
+                locator.fill(text)
+            except Exception as fill_error:
+                logger.error(f"Fallback fill also failed: {fill_error}")
+                raise
+    
+    def _select_dropdown_like_human(self, locator, value: str):
+        """
+        Select dropdown option like a human would (hover, click, wait, select).
+        
+        Args:
+            locator: Playwright locator for the select element
+            value: Value to select
+        """
+        try:
+            # Scroll to element if needed (humans scroll to see options)
+            locator.scroll_into_view_if_needed()
+            self._human_like_delay(0.1, 0.15)
+            
+            # Hover over the dropdown first (humans often hover before clicking)
+            locator.hover(timeout=5000)
+            self._human_like_delay(0.1, 0.2)
+            
+            # Click on the dropdown to open it (humans click to open dropdown)
+            locator.click(timeout=5000)
+            self._human_like_delay(0.2, 0.4)  # Wait for dropdown options to appear
+            
+            # Select the option (this will close the dropdown)
+            locator.select_option(value, timeout=5000)
+            
+            # Small pause after selection (humans verify their choice)
+            self._human_like_delay(0.15, 0.3)
+        except Exception as e:
+            logger.warning(f"Error in human-like dropdown selection, falling back to select_option: {e}")
+            # Fallback to regular select_option if human-like method fails
+            try:
+                locator.select_option(value, timeout=5000)
+            except Exception as fallback_error:
+                logger.error(f"Fallback select_option also failed: {fallback_error}")
+                raise
     
     def _close_modal_if_present(self):
         """Close the error modal if it appears (no match found)."""
@@ -498,9 +649,26 @@ class BrowserAutomation:
             return False
         
         try:
-            # Reload the page
-            self.page.reload(wait_until='load', timeout=90000)
-            time.sleep(2.0)  # Page load wait
+            # Try to reload the page
+            # If reload fails due to stale page object, try navigating fresh
+            try:
+                self.page.reload(wait_until='load', timeout=90000)
+                time.sleep(2.0)  # Page load wait
+            except (AttributeError, Exception) as reload_error:
+                # If reload fails (e.g., stale page object), try navigating fresh
+                error_str = str(reload_error).lower()
+                if '_object' in error_str or 'dict' in error_str:
+                    logger.warning(f"Page reload failed due to stale object in recovery, navigating fresh: {reload_error}")
+                    try:
+                        # Navigate to the page fresh instead of reloading
+                        self.page.goto(self.url, wait_until='load', timeout=90000)
+                        time.sleep(2.0)  # Page load wait
+                    except Exception as nav_error:
+                        logger.error(f"Failed to navigate fresh during recovery: {nav_error}")
+                        return False
+                else:
+                    # Some other error, re-raise it
+                    raise
             
             # Click on "Datos Personales" tab to access the form
             try:
@@ -511,7 +679,7 @@ class BrowserAutomation:
                     tab.click()
                     time.sleep(0.4)  # Tab switch delay
             except Exception as e:
-                print(f"Warning: Could not click 'Datos Personales' tab during recovery: {e}")
+                logger.warning(f"Could not click 'Datos Personales' tab during recovery: {e}")
                 return False
             
             # Wait for form fields to be available
@@ -521,7 +689,7 @@ class BrowserAutomation:
             return True
             
         except Exception as e:
-            print(f"Error during recovery: {e}")
+            logger.error(f"Error during recovery: {e}", exc_info=True)
             return False
     
     def search_curp(self, first_name: str, last_name_1: str, last_name_2: str,
@@ -553,46 +721,50 @@ class BrowserAutomation:
             # Fill form fields with human-like timing (simulates real user behavior)
             # Fill form fields using the actual IDs from the website
             
-            # First name (nombres) - humans type at variable speeds
-            self.page.fill('input#nombre', first_name, timeout=5000)
-            self._human_like_typing_delay()
-            self._human_like_delay(0.1, 0.2)  # Pause to "read" or "think"
+            # First name (nombres) - type character by character like a human
+            nombre_locator = self.page.locator('input#nombre')
+            self._type_like_human(nombre_locator, first_name)
+            self._human_like_delay(0.15, 0.25)  # Pause to "read" or "think" before moving to next field
             
-            # First last name (primerApellido)
-            self.page.fill('input#primerApellido', last_name_1, timeout=5000)
-            self._human_like_typing_delay()
-            self._human_like_delay(0.1, 0.2)
+            # First last name (primerApellido) - type character by character
+            primer_apellido_locator = self.page.locator('input#primerApellido')
+            self._type_like_human(primer_apellido_locator, last_name_1)
+            self._human_like_delay(0.15, 0.25)
             
-            # Second last name (segundoApellido)
-            self.page.fill('input#segundoApellido', last_name_2, timeout=5000)
-            self._human_like_typing_delay()
-            self._human_like_delay(0.1, 0.3)  # Slightly longer pause before dropdowns
+            # Second last name (segundoApellido) - type character by character
+            segundo_apellido_locator = self.page.locator('input#segundoApellido')
+            self._type_like_human(segundo_apellido_locator, last_name_2)
+            self._human_like_delay(0.2, 0.35)  # Slightly longer pause before dropdowns
             
-            # Day - format as "01", "02", etc. (humans take time to select from dropdown)
+            # Day - format as "01", "02", etc. (humans click dropdown, wait, then select)
             day_str = str(day).zfill(2)
-            self.page.select_option('select#diaNacimiento', day_str, timeout=5000)
-            self._human_like_delay(0.2, 0.4)  # Dropdown selection delay
+            dia_locator = self.page.locator('select#diaNacimiento')
+            self._select_dropdown_like_human(dia_locator, day_str)
+            self._human_like_delay(0.2, 0.3)  # Pause after dropdown selection
             
             # Month - format as "01", "02", etc.
             month_str = str(month).zfill(2)
-            self.page.select_option('select#mesNacimiento', month_str, timeout=5000)
-            self._human_like_delay(0.2, 0.4)
+            mes_locator = self.page.locator('select#mesNacimiento')
+            self._select_dropdown_like_human(mes_locator, month_str)
+            self._human_like_delay(0.2, 0.3)
             
-            # Year (humans type numbers at variable speeds)
+            # Year (humans type numbers character by character)
             year_str = str(year)
-            self.page.fill('input#selectedYear', year_str, timeout=5000)
-            self._human_like_typing_delay()
-            self._human_like_delay(0.1, 0.2)
+            year_locator = self.page.locator('input#selectedYear')
+            self._type_like_human(year_locator, year_str)
+            self._human_like_delay(0.15, 0.25)
             
-            # Gender (sexo) - values: "H", "M", or "X"
+            # Gender (sexo) - values: "H", "M", or "X" (humans click dropdown, wait, then select)
             gender_value = "H" if gender.upper() == "H" else "M"
-            self.page.select_option('select#sexo', gender_value, timeout=5000)
+            sexo_locator = self.page.locator('select#sexo')
+            self._select_dropdown_like_human(sexo_locator, gender_value)
             self._human_like_delay(0.2, 0.3)
             
             # State (claveEntidad) - convert state name to code (longer pause for state selection)
             state_code = get_state_code(state)
-            self.page.select_option('select#claveEntidad', state_code, timeout=5000)
-            self._human_like_delay(0.2, 0.3)  # Reduced pause before submitting
+            estado_locator = self.page.locator('select#claveEntidad')
+            self._select_dropdown_like_human(estado_locator, state_code)
+            self._human_like_delay(0.25, 0.4)  # Longer pause before submitting (humans review state selection)
             
             # Submit form - humans pause before clicking submit button
             self._human_like_delay(0.2, 0.4)  # "Review" the form before submitting
@@ -603,6 +775,11 @@ class BrowserAutomation:
                 # The form is in tab-02, so submit button should be there
                 submit_button = self.page.locator('#tab-02 form button[type="submit"]').first
                 if submit_button.count() > 0:
+                    # Human-like button click: hover first, then click
+                    submit_button.scroll_into_view_if_needed()
+                    self._human_like_delay(0.1, 0.15)
+                    submit_button.hover()
+                    self._human_like_delay(0.1, 0.2)  # Brief pause after hover
                     submit_button.click()
                     submitted = True
                     self._human_like_delay(0.3, 0.6)  # Variable delay after clicking
@@ -614,9 +791,14 @@ class BrowserAutomation:
                     # Method 2: Look for any submit button in the current form
                     submit_button = self.page.locator('form button[type="submit"]').first
                     if submit_button.count() > 0:
+                        # Human-like button click: hover first, then click
+                        submit_button.scroll_into_view_if_needed()
+                        self._human_like_delay(0.1, 0.15)
+                        submit_button.hover()
+                        self._human_like_delay(0.1, 0.2)
                         submit_button.click()
                         submitted = True
-                        time.sleep(0.3)  # Form submission delay
+                        self._human_like_delay(0.3, 0.6)  # Form submission delay
                 except Exception as e:
                     pass
             
@@ -651,47 +833,61 @@ class BrowserAutomation:
                     print(f"Unrecognized error detected, attempting recovery (attempt {recovery_attempt + 1}/{max_recovery_attempts})...")
                     if self._recover_from_error():
                         print("Recovery successful, retrying search...")
-                        # Re-fill the form and resubmit
+                        # Re-fill the form and resubmit using human-like methods
                         # First name
-                        self.page.fill('input#nombre', first_name, timeout=5000)
-                        time.sleep(0.1)
+                        nombre_locator = self.page.locator('input#nombre')
+                        self._type_like_human(nombre_locator, first_name)
+                        self._human_like_delay(0.1, 0.15)
                         # First last name
-                        self.page.fill('input#primerApellido', last_name_1, timeout=5000)
-                        time.sleep(0.1)
+                        primer_apellido_locator = self.page.locator('input#primerApellido')
+                        self._type_like_human(primer_apellido_locator, last_name_1)
+                        self._human_like_delay(0.1, 0.15)
                         # Second last name
-                        self.page.fill('input#segundoApellido', last_name_2, timeout=5000)
-                        time.sleep(0.1)
+                        segundo_apellido_locator = self.page.locator('input#segundoApellido')
+                        self._type_like_human(segundo_apellido_locator, last_name_2)
+                        self._human_like_delay(0.1, 0.15)
                         # Day
                         day_str = str(day).zfill(2)
-                        self.page.select_option('select#diaNacimiento', day_str, timeout=5000)
-                        time.sleep(0.1)
+                        dia_locator = self.page.locator('select#diaNacimiento')
+                        self._select_dropdown_like_human(dia_locator, day_str)
+                        self._human_like_delay(0.1, 0.15)
                         # Month
                         month_str = str(month).zfill(2)
-                        self.page.select_option('select#mesNacimiento', month_str, timeout=5000)
-                        time.sleep(0.1)
+                        mes_locator = self.page.locator('select#mesNacimiento')
+                        self._select_dropdown_like_human(mes_locator, month_str)
+                        self._human_like_delay(0.1, 0.15)
                         # Year
                         year_str = str(year)
-                        self.page.fill('input#selectedYear', year_str, timeout=5000)
-                        time.sleep(0.1)
+                        year_locator = self.page.locator('input#selectedYear')
+                        self._type_like_human(year_locator, year_str)
+                        self._human_like_delay(0.1, 0.15)
                         # Gender
                         gender_value = "H" if gender.upper() == "H" else "M"
-                        self.page.select_option('select#sexo', gender_value, timeout=5000)
-                        time.sleep(0.1)
+                        sexo_locator = self.page.locator('select#sexo')
+                        self._select_dropdown_like_human(sexo_locator, gender_value)
+                        self._human_like_delay(0.1, 0.15)
                         # State
                         state_code = get_state_code(state)
-                        self.page.select_option('select#claveEntidad', state_code, timeout=5000)
-                        time.sleep(0.2)
+                        estado_locator = self.page.locator('select#claveEntidad')
+                        self._select_dropdown_like_human(estado_locator, state_code)
+                        self._human_like_delay(0.15, 0.25)
                         # Resubmit
                         self._human_like_delay(0.3, 0.6)
                         try:
                             submit_button = self.page.locator('#tab-02 form button[type="submit"]').first
                             if submit_button.count() > 0:
+                                # Human-like button click: hover first, then click
+                                submit_button.scroll_into_view_if_needed()
+                                self._human_like_delay(0.1, 0.15)
+                                submit_button.hover()
+                                self._human_like_delay(0.1, 0.2)
                                 submit_button.click()
                                 self._human_like_delay(0.3, 0.6)
                             else:
                                 self.page.keyboard.press('Enter')
                                 self._human_like_delay(0.3, 0.6)
-                        except:
+                        except Exception as submit_error:
+                            logger.debug(f"Submit button click failed, using Enter key: {submit_error}")
                             self.page.keyboard.press('Enter')
                             self._human_like_delay(0.3, 0.6)
                         search_start_time = time.time()  # Reset start time
@@ -709,11 +905,31 @@ class BrowserAutomation:
                 # Timeout occurred - reload page and move to next input
                 logger.warning("Search timeout after 20 seconds, reloading page and moving to next input...")
                 try:
-                    self.page.reload(wait_until='load', timeout=90000)
-                    time.sleep(2.0)  # Page load wait
+                    # Try to reload the page
+                    # If reload fails due to stale page object, try navigating fresh
+                    try:
+                        self.page.reload(wait_until='load', timeout=90000)
+                        time.sleep(2.0)  # Page load wait
+                    except (AttributeError, Exception) as reload_error:
+                        # If reload fails (e.g., stale page object), try navigating fresh
+                        error_str = str(reload_error).lower()
+                        if '_object' in error_str or 'dict' in error_str:
+                            logger.warning(f"Page reload failed due to stale object, navigating fresh: {reload_error}")
+                            try:
+                                # Navigate to the page fresh instead of reloading
+                                self.page.goto(self.url, wait_until='load', timeout=90000)
+                                time.sleep(2.0)  # Page load wait
+                            except Exception as nav_error:
+                                logger.error(f"Failed to navigate fresh after reload error: {nav_error}")
+                                # If navigation also fails, just continue - we'll try to use existing page
+                                self.form_ready = True
+                                return ""
+                        else:
+                            # Some other error, re-raise it
+                            raise
                     
                     # Click on "Datos Personales" tab
-                    # Note: After reload, all locators become stale, so we need to recreate them
+                    # Note: After reload/navigation, all locators become stale, so we need to recreate them
                     try:
                         self.page.wait_for_selector('a[href="#tab-02"]', timeout=10000)
                         # Recreate locator after reload to avoid stale reference
