@@ -697,47 +697,38 @@ class BrowserAutomation:
                 )
                 
                 if has_match_result or has_no_match_modal:
-                    # Results detected - return immediately without waiting
-                    # Only wait if there are loading indicators (content still loading)
-                    content_lower = content.lower()
+                    # Results detected - verify they are stable and return immediately
+                    # If results are clearly present, return immediately regardless of loading indicators
+                    # (loading indicators might be leftover UI elements)
                     
-                    # Check for various loading indicators
-                    has_loading_text = (
-                        'cargando' in content_lower or 
-                        'loading' in content_lower or
-                        'procesando' in content_lower or
-                        'buscando' in content_lower
-                    )
+                    if has_match_result:
+                        # Verify match result is present (check key indicators)
+                        still_has_match = (
+                            '#dwnldLnk' in content or 
+                            'Descarga del CURP' in content or
+                            'Datos del solicitante' in content
+                        )
+                        if still_has_match:
+                            # Results are clearly present - return immediately
+                            logger.debug("Match result detected, returning immediately")
+                            return True
                     
-                    # Check for spinners or loaders
-                    has_spinner = self.page.locator('.spinner, .loader, .loading, [class*="loading"], [class*="spinner"]').count() > 0
+                    if has_no_match_modal:
+                        # Verify modal is present
+                        still_has_modal = (
+                            'Aviso importante' in content or
+                            'warningMenssage' in content or
+                            self.page.locator('button[data-dismiss="modal"]').count() > 0
+                        )
+                        if still_has_modal:
+                            # No-match modal is clearly present - return immediately
+                            logger.debug("No-match modal detected, returning immediately")
+                            return True
                     
-                    if not has_loading_text and not has_spinner:
-                        # No loading indicators - results are ready, return immediately
-                        if has_match_result:
-                            # Verify match result is present
-                            still_has_match = (
-                                '#dwnldLnk' in content or 
-                                'Descarga del CURP' in content or
-                                'Datos del solicitante' in content
-                            )
-                            if still_has_match:
-                                logger.debug("Match result detected, returning immediately")
-                                return True
-                        elif has_no_match_modal:
-                            # Verify modal is present
-                            still_has_modal = (
-                                'Aviso importante' in content or
-                                'warningMenssage' in content or
-                                self.page.locator('button[data-dismiss="modal"]').count() > 0
-                            )
-                            if still_has_modal:
-                                logger.debug("No-match modal detected, returning immediately")
-                                return True
-                    else:
-                        # Loading indicators present - wait briefly and re-check
-                        time.sleep(0.5)
-                        continue  # Continue loop to re-check
+                    # If we detected results but verification failed, wait briefly and re-check
+                    # This handles edge cases where results appear but aren't fully loaded yet
+                    time.sleep(0.3)
+                    continue  # Continue loop to re-check
                 
                 # Use variable check interval (more human-like)
                 check_interval = random.uniform(0.3, 0.8)
