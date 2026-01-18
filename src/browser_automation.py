@@ -6,6 +6,10 @@ import time
 import random
 import asyncio
 import logging
+import threading
+import queue
+import sys
+import concurrent.futures
 from typing import Optional, Dict
 from playwright.sync_api import sync_playwright, Page, Browser, BrowserContext
 from state_codes import get_state_code
@@ -52,35 +56,83 @@ class BrowserAutomation:
     
     def start_browser(self):
         """Start browser and navigate to CURP page."""
-        # Clear any asyncio event loop in this thread
-        # Python 3.12+ may create default event loops in threads
-        try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                logger.warning("Found running asyncio event loop, closing it before starting Playwright")
-                loop.close()
-        except RuntimeError:
-            # No event loop exists, which is what we want
-            pass
+        # Enhanced logging for diagnosis
+        thread_id = threading.get_ident()
+        thread_name = threading.current_thread().name
+        logger.info(f"Starting browser in thread {thread_id} ({thread_name}), Python {sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}")
         
-        # Ensure no event loop policy is set for this thread
+        # More aggressive asyncio cleanup for Python 3.12+
         try:
-            asyncio.set_event_loop(None)
-        except Exception as e:
-            logger.debug(f"Could not clear event loop (may not exist): {e}")
-        
-        # Now start Playwright - it should work in a clean thread
-        try:
-            self.playwright = sync_playwright().start()
-            logger.debug("Playwright started successfully")
+            # Method 1: Try to get running loop (only returns if actually running)
+            use_isolated_thread = False
+            try:
+                running_loop = asyncio.get_running_loop()
+                logger.warning(f"Found running asyncio event loop in thread {thread_id}, attempting to handle...")
+                # Can't close running loop from sync context, need different approach
+                logger.info("Running event loop detected - using isolated thread method")
+                use_isolated_thread = True
+            except RuntimeError as e:
+                if "no running event loop" not in str(e).lower():
+                    # There IS a running loop - this is the problem
+                    logger.error(f"Running event loop detected: {e}")
+                    logger.info("Using isolated thread method to start Playwright")
+                    use_isolated_thread = True
+                else:
+                    # No running loop - continue with cleanup
+                    logger.debug("No running event loop detected")
+            except AttributeError:
+                # get_running_loop() not available (Python < 3.7)
+                logger.debug("get_running_loop() not available, using fallback method")
+            
+            # If we detected a running loop, use isolated thread method
+            if use_isolated_thread:
+                self._start_playwright_in_isolated_thread()
+                # Playwright is now started, skip normal initialization and continue to browser launch
+            else:
+                # Method 2: Try to get any event loop (even if not running)
+                try:
+                    loop = asyncio.get_event_loop()
+                    if loop.is_closed():
+                        # Loop exists but is closed - remove it
+                        logger.debug("Found closed event loop, removing it")
+                        asyncio.set_event_loop(None)
+                    else:
+                        # Loop exists and is not closed - close it
+                        logger.warning(f"Found non-running event loop in thread {thread_id}, closing it...")
+                        loop.close()
+                        asyncio.set_event_loop(None)
+                        logger.debug("Event loop closed and removed")
+                except RuntimeError:
+                    # No event loop exists - this is what we want
+                    logger.debug("No event loop exists (expected)")
+                
+                # Method 3: Explicitly set event loop to None
+                asyncio.set_event_loop(None)
+                logger.debug("Event loop explicitly set to None")
+                
+                # Method 4: Log asyncio state for debugging
+                try:
+                    current_loop = asyncio.get_event_loop()
+                    logger.debug(f"Event loop still exists after cleanup: {current_loop}")
+                except RuntimeError:
+                    logger.debug("Event loop successfully cleared (no loop exists)")
+                
+                # Now try to start Playwright normally
+                logger.debug("Attempting to start Playwright...")
+                self.playwright = sync_playwright().start()
+                logger.info("Playwright started successfully")
+            
         except Exception as e:
             error_msg = str(e).lower()
             if 'asyncio' in error_msg or 'event loop' in error_msg:
-                logger.error(f"Playwright asyncio conflict: {e}")
-                raise RuntimeError(f"Cannot start Playwright: asyncio conflict. "
-                                 f"Worker thread may have inherited asyncio context. Error: {e}")
+                logger.error(f"Playwright asyncio conflict after cleanup: {e}")
+                logger.info("Attempting to start Playwright in isolated thread...")
+                # Last resort: start in isolated thread
+                self._start_playwright_in_isolated_thread()
+                # Continue with browser launch after isolated thread method completes
             else:
                 # Some other error, re-raise it
+                logger.error(f"Unexpected error starting Playwright: {e}")
                 raise
         
         # Launch browser
@@ -140,6 +192,109 @@ class BrowserAutomation:
                 else:
                     print(f"Error navigating to {self.url} after {max_retries} attempts: {e}")
                     raise
+    
+    def _start_playwright_in_isolated_thread(self):
+        """
+        Start Playwright in an isolated thread with no asyncio context.
+        This is a fallback when normal initialization fails due to asyncio conflicts.
+        """
+        logger.info("Starting Playwright in isolated thread...")
+        result_queue = queue.Queue()
+        error_queue = queue.Queue()
+        
+        def isolated_start():
+            """Run Playwright start in completely isolated thread."""
+            try:
+                import sys
+                thread_id = threading.get_ident()
+                thread_name = threading.current_thread().name
+                logger.debug(f"Isolated thread {thread_id} ({thread_name}) starting Playwright")
+                
+                # Ensure no event loop in this thread
+                try:
+                    asyncio.set_event_loop(None)
+                    logger.debug(f"Isolated thread {thread_id}: Event loop cleared")
+                except Exception as clear_error:
+                    logger.debug(f"Isolated thread {thread_id}: Could not clear event loop: {clear_error}")
+                
+                # Try to get running loop in isolated thread
+                try:
+                    running_loop = asyncio.get_running_loop()
+                    logger.warning(f"Isolated thread {thread_id}: Running loop detected, this shouldn't happen")
+                except RuntimeError:
+                    logger.debug(f"Isolated thread {thread_id}: No running loop (expected)")
+                
+                # Start Playwright
+                logger.debug(f"Isolated thread {thread_id}: Starting Playwright...")
+                playwright = sync_playwright().start()
+                logger.info(f"Isolated thread {thread_id}: Playwright started successfully")
+                result_queue.put(playwright)
+            except Exception as e:
+                logger.error(f"Isolated thread error: {e}", exc_info=True)
+                error_queue.put(e)
+        
+        # Start isolated thread
+        thread = threading.Thread(target=isolated_start, daemon=False, name="PlaywrightInitThread")
+        thread.start()
+        thread.join(timeout=30)  # Wait up to 30 seconds
+        
+        if thread.is_alive():
+            logger.error("Playwright initialization timed out in isolated thread")
+            raise RuntimeError("Playwright initialization timed out in isolated thread")
+        
+        if not error_queue.empty():
+            error = error_queue.get()
+            logger.error(f"Failed to start Playwright in isolated thread: {error}")
+            raise RuntimeError(f"Failed to start Playwright in isolated thread: {error}")
+        
+        if result_queue.empty():
+            logger.error("Playwright initialization completed but no result returned")
+            raise RuntimeError("Playwright initialization completed but no result returned")
+        
+        self.playwright = result_queue.get()
+        logger.info("Playwright started successfully in isolated thread, continuing with browser launch")
+        
+        # Continue with browser launch (in original thread)
+        # Note: Playwright object can be used from any thread
+    
+    def _start_playwright_with_new_loop(self):
+        """
+        Alternative: Start Playwright by creating a new event loop.
+        This is a fallback if isolated thread method doesn't work.
+        """
+        logger.info("Starting Playwright with new event loop wrapper...")
+        
+        def start_in_executor():
+            """Start Playwright in executor with new event loop."""
+            thread_id = threading.get_ident()
+            logger.debug(f"Executor thread {thread_id}: Creating new event loop")
+            
+            # Create new event loop for this thread
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                logger.debug(f"Executor thread {thread_id}: Starting Playwright")
+                # Start Playwright (sync API doesn't need asyncio, but we ensure clean state)
+                playwright = sync_playwright().start()
+                logger.info(f"Executor thread {thread_id}: Playwright started")
+                return playwright
+            finally:
+                logger.debug(f"Executor thread {thread_id}: Cleaning up event loop")
+                loop.close()
+                asyncio.set_event_loop(None)
+        
+        # Run in thread pool executor
+        try:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(start_in_executor)
+                self.playwright = future.result(timeout=30)
+                logger.info("Playwright started successfully with new loop wrapper")
+        except concurrent.futures.TimeoutError:
+            logger.error("Playwright initialization timed out in executor")
+            raise RuntimeError("Playwright initialization timed out in executor")
+        except Exception as e:
+            logger.error(f"Error starting Playwright in executor: {e}")
+            raise
     
     def close_browser(self):
         """Close browser and cleanup with enhanced error handling and logging."""
@@ -338,34 +493,65 @@ class BrowserAutomation:
     
     def _select_dropdown_like_human(self, locator, value: str):
         """
-        Select dropdown option like a human would (hover, click, wait, select).
+        Select dropdown option like a human would (hover, focus, select).
+        Ensures dropdown is ready and focused before selection, and waits for each action to complete.
         
         Args:
             locator: Playwright locator for the select element
             value: Value to select
         """
         try:
-            # Scroll to element if needed (humans scroll to see options)
+            # Step 1: Wait for dropdown to be visible and ready (ensures it's the right time)
+            locator.wait_for(state='visible', timeout=5000)
+            self._human_like_delay(0.1, 0.15)
+            
+            # Step 2: Scroll to element if needed (humans scroll to see options)
             locator.scroll_into_view_if_needed()
             self._human_like_delay(0.1, 0.15)
             
-            # Hover over the dropdown first (humans often hover before clicking)
+            # Step 3: Hover over the dropdown first (humans often hover before interacting)
             locator.hover(timeout=5000)
             self._human_like_delay(0.1, 0.2)
             
-            # Click on the dropdown to open it (humans click to open dropdown)
-            locator.click(timeout=5000)
-            self._human_like_delay(0.2, 0.4)  # Wait for dropdown options to appear
+            # Step 4: Focus on the dropdown (ensures it's ready for interaction, prevents other actions)
+            # This ensures the dropdown is the active element before selection
+            locator.focus(timeout=5000)
+            self._human_like_delay(0.15, 0.25)  # Wait after focus to ensure it's ready
             
-            # Select the option (this will close the dropdown)
+            # Step 5: Verify dropdown is still attached and ready (double-check)
+            try:
+                locator.wait_for(state='attached', timeout=2000)
+            except:
+                pass  # If wait fails, continue anyway
+            
+            # Step 6: Select the option directly (for HTML select elements, select_option works without clicking)
+            # This is the actual selection - happens only when dropdown is focused and ready
             locator.select_option(value, timeout=5000)
             
-            # Small pause after selection (humans verify their choice)
+            # Step 7: Wait briefly to ensure selection is applied and dropdown closes
+            self._human_like_delay(0.15, 0.2)
+            
+            # Step 8: Verify selection was successful
+            try:
+                selected_value = locator.input_value(timeout=1000)
+                if selected_value != value:
+                    logger.debug(f"Dropdown selection verification: Expected {value}, Got {selected_value}")
+                    # Try once more if value doesn't match
+                    locator.select_option(value, timeout=5000)
+                    self._human_like_delay(0.1, 0.15)
+            except:
+                pass  # If verification fails, assume selection worked
+            
+            # Step 9: Small pause after selection (humans verify their choice)
             self._human_like_delay(0.15, 0.3)
+            
         except Exception as e:
             logger.warning(f"Error in human-like dropdown selection, falling back to select_option: {e}")
             # Fallback to regular select_option if human-like method fails
             try:
+                # Ensure element is visible and ready before fallback
+                locator.wait_for(state='visible', timeout=5000)
+                locator.focus(timeout=5000)
                 locator.select_option(value, timeout=5000)
             except Exception as fallback_error:
                 logger.error(f"Fallback select_option also failed: {fallback_error}")
@@ -511,11 +697,8 @@ class BrowserAutomation:
                 )
                 
                 if has_match_result or has_no_match_modal:
-                    # Wait longer to ensure content is fully loaded (site may be slow)
-                    time.sleep(1.0)
-                    
-                    # Re-check content after wait
-                    content = self.page.content()
+                    # Results detected - return immediately without waiting
+                    # Only wait if there are loading indicators (content still loading)
                     content_lower = content.lower()
                     
                     # Check for various loading indicators
@@ -530,28 +713,31 @@ class BrowserAutomation:
                     has_spinner = self.page.locator('.spinner, .loader, .loading, [class*="loading"], [class*="spinner"]').count() > 0
                     
                     if not has_loading_text and not has_spinner:
-                        # Verify we still have the result after waiting
+                        # No loading indicators - results are ready, return immediately
                         if has_match_result:
-                            # Double-check match result is still present
+                            # Verify match result is present
                             still_has_match = (
                                 '#dwnldLnk' in content or 
                                 'Descarga del CURP' in content or
                                 'Datos del solicitante' in content
                             )
                             if still_has_match:
-                                # Additional wait to ensure DOM is stable
-                                time.sleep(0.3)
+                                logger.debug("Match result detected, returning immediately")
                                 return True
                         elif has_no_match_modal:
-                            # Verify modal is still present
+                            # Verify modal is present
                             still_has_modal = (
                                 'Aviso importante' in content or
                                 'warningMenssage' in content or
                                 self.page.locator('button[data-dismiss="modal"]').count() > 0
                             )
                             if still_has_modal:
-                                time.sleep(0.3)
+                                logger.debug("No-match modal detected, returning immediately")
                                 return True
+                    else:
+                        # Loading indicators present - wait briefly and re-check
+                        time.sleep(0.5)
+                        continue  # Continue loop to re-check
                 
                 # Use variable check interval (more human-like)
                 check_interval = random.uniform(0.3, 0.8)
