@@ -10,7 +10,7 @@
   "pause_every_n": 75,
   "pause_duration": 15,
   "browser": {
-    "headless": false
+    "headless": true
   },
   "num_workers": 5,
   "output_dir": "./data/results",
