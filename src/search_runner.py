@@ -281,6 +281,30 @@ def run_search(job_id: str, input_file_path: str, year_start: int, year_end: int
             logger.info(f"Processing person {person_id}: {person_name}")
             logger.info(f"Total combinations for this person: {total_combinations}")
             
+            # Send initial progress update
+            initial_progress = JobProgress(
+                person_id=person_id,
+                person_name=person_name,
+                combination_index=0,
+                total_combinations=total_combinations,
+                matches_found=0,
+                current_combination=None
+            )
+            initial_progress.percentage = 0.0
+            search_manager.update_job_progress(job_id, initial_progress)
+            emit_progress_update(job_id, {
+                'job_id': job_id,
+                'progress': {
+                    'person_id': initial_progress.person_id,
+                    'person_name': initial_progress.person_name,
+                    'combination_index': initial_progress.combination_index,
+                    'total_combinations': initial_progress.total_combinations,
+                    'matches_found': initial_progress.matches_found,
+                    'current_combination': initial_progress.current_combination,
+                    'percentage': initial_progress.percentage
+                }
+            })
+            
             # Create progress callback that emits via WebSocket
             def progress_cb(progress_data: Dict):
                 """Progress callback that updates job and emits WebSocket."""

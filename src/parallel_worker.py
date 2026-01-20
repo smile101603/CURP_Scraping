@@ -291,7 +291,8 @@ class ParallelWorker:
                             current_count = processed_count['count']
                         
                         # Call progress callback if provided
-                        if progress_callback and current_count % 10 == 0:  # Update every 10 for smoother progress
+                        # Update every 5 searches for better responsiveness (changed from 10)
+                        if progress_callback and (current_count % 5 == 0 or current_count == 1):
                             try:
                                 progress_callback({
                                     'person_id': person_id,
