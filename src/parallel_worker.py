@@ -194,7 +194,6 @@ class ParallelWorker:
                                 
                                 # Try to extract CURP directly from HTML as fallback using multiple patterns
                                 import re
-                                from pathlib import Path
                                 
                                 # Pattern 1: Standard CURP format
                                 curp_patterns = [
