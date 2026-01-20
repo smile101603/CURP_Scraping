@@ -230,11 +230,15 @@ class CURPApp {
                 end_row: endRow
             };
             
-            // Add month range if provided (for testing specific months)
+            // Add month range if provided (for testing specific months - applies to all persons)
             if (monthStart !== undefined && monthStart !== null && monthStart !== '' &&
                 monthEnd !== undefined && monthEnd !== null && monthEnd !== '') {
-                requestBody.month_start = parseInt(monthStart);
-                requestBody.month_end = parseInt(monthEnd);
+                const monthStartNum = parseInt(monthStart);
+                const monthEndNum = parseInt(monthEnd);
+                if (!isNaN(monthStartNum) && !isNaN(monthEndNum)) {
+                    requestBody.month_start = monthStartNum;
+                    requestBody.month_end = monthEndNum;
+                }
             }
             
             // Add last person year range if provided (for odd number split)
@@ -286,15 +290,17 @@ class CURPApp {
             return;
         }
 
+        // Get and validate year range (required)
         const yearStart = parseInt(this.yearStartInput.value);
         const yearEnd = parseInt(this.yearEndInput.value);
-        
-        // Get month range (optional)
-        const monthStart = this.monthStartInput.value.trim();
-        const monthEnd = this.monthEndInput.value.trim();
 
-        if (!yearStart || !yearEnd) {
+        if (!yearStart || !yearEnd || isNaN(yearStart) || isNaN(yearEnd)) {
             this.showMessage('Please enter valid year range', 'error');
+            return;
+        }
+
+        if (yearStart < 1900 || yearEnd > 2100) {
+            this.showMessage('Year range must be between 1900 and 2100', 'error');
             return;
         }
 
@@ -303,13 +309,26 @@ class CURPApp {
             return;
         }
         
-        // Validate month range if provided
-        if (monthStart || monthEnd) {
+        // Get month range (optional - for testing specific months, applies to all persons)
+        let monthStart = this.monthStartInput.value.trim();
+        let monthEnd = this.monthEndInput.value.trim();
+        
+        // Convert empty strings to undefined for optional parameters
+        if (monthStart === '') monthStart = undefined;
+        if (monthEnd === '') monthEnd = undefined;
+        
+        // Validate month range if provided (both must be provided together)
+        if (monthStart !== undefined || monthEnd !== undefined) {
+            if (monthStart === undefined || monthEnd === undefined) {
+                this.showMessage('Please provide both start and end month, or leave both empty', 'error');
+                return;
+            }
+            
             const monthStartNum = parseInt(monthStart);
             const monthEndNum = parseInt(monthEnd);
             
-            if (!monthStart || !monthEnd) {
-                this.showMessage('Please provide both start and end month, or leave both empty', 'error');
+            if (isNaN(monthStartNum) || isNaN(monthEndNum)) {
+                this.showMessage('Month values must be valid numbers', 'error');
                 return;
             }
             

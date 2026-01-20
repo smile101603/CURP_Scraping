@@ -38,27 +38,35 @@
             </div>
         </div>
 
-        <!-- Year Range Input -->
+        <!-- Year Range Input (Required) -->
         <div class="year-range">
+            <h3>Year Range (Required)</h3>
+            <p class="field-description">Birth year range to search. Both values are required.</p>
             <div class="form-group">
-                <label for="year-start">Start Year</label>
-                <input type="number" id="year-start" min="1900" max="2100" value="1977" required>
+                <label for="year-start">Start Year *</label>
+                <input type="number" id="year-start" min="1900" max="2100" value="1977" required 
+                       title="Start year (1900-2100)">
             </div>
             <div class="form-group">
-                <label for="year-end">End Year</label>
-                <input type="number" id="year-end" min="1900" max="2100" value="1977" required>
+                <label for="year-end">End Year *</label>
+                <input type="number" id="year-end" min="1900" max="2100" value="1977" required 
+                       title="End year (1900-2100), must be >= start year">
             </div>
         </div>
 
-        <!-- Month Range Input (Optional - for testing specific months) -->
+        <!-- Month Range Input (Optional - applies to all persons) -->
         <div class="month-range" style="margin-top: 15px;">
+            <h3>Month Range (Optional)</h3>
+            <p class="field-description">Limit search to specific months (1-12). Leave empty to search all months. Both values required if specified.</p>
             <div class="form-group">
-                <label for="month-start">Start Month (Optional)</label>
-                <input type="number" id="month-start" min="1" max="12" placeholder="1" title="Leave empty to test all months">
+                <label for="month-start">Start Month</label>
+                <input type="number" id="month-start" min="1" max="12" placeholder="Leave empty for all months" 
+                       title="Start month (1-12). Leave empty to search all months">
             </div>
             <div class="form-group">
-                <label for="month-end">End Month (Optional)</label>
-                <input type="number" id="month-end" min="1" max="12" placeholder="12" title="Leave empty to test all months">
+                <label for="month-end">End Month</label>
+                <input type="number" id="month-end" min="1" max="12" placeholder="Leave empty for all months" 
+                       title="End month (1-12). Leave empty to search all months">
             </div>
         </div>
 
