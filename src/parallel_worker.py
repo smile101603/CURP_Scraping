@@ -90,13 +90,13 @@ class ParallelWorker:
         try:
             # Initialize browser for this worker
             try:
-            browser_automation = BrowserAutomation(
-                headless=self.headless,
-                min_delay=self.min_delay,
-                max_delay=self.max_delay,
-                pause_every_n=self.pause_every_n,
-                pause_duration=self.pause_duration
-            )
+                browser_automation = BrowserAutomation(
+                    headless=self.headless,
+                    min_delay=self.min_delay,
+                    max_delay=self.max_delay,
+                    pause_every_n=self.pause_every_n,
+                    pause_duration=self.pause_duration
+                )
             except Exception as e:
                 logger.error(f"Worker {worker_id}: Failed to initialize BrowserAutomation: {e}")
                 # Ensure cleanup even if initialization fails
@@ -112,7 +112,7 @@ class ParallelWorker:
             browser_started = False
             for start_attempt in range(max_start_retries):
                 try:
-            browser_automation.start_browser()
+                    browser_automation.start_browser()
                     browser_started = True
                     logger.info(f"Worker {worker_id}: Browser started successfully")
                     break
@@ -369,7 +369,7 @@ class ParallelWorker:
             if browser_automation:
                 try:
                     logger.debug(f"Worker {worker_id}: Final cleanup - closing browser...")
-                browser_automation.close_browser()
+                    browser_automation.close_browser()
                     logger.info(f"Worker {worker_id}: Browser closed successfully")
                 except Exception as cleanup_error:
                     logger.error(f"Worker {worker_id}: Error during final cleanup: {cleanup_error}", exc_info=True)
@@ -440,7 +440,7 @@ class ParallelWorker:
         gender = person_data['gender']
         person_id = person_data['person_id']
         if person_name is None:
-        person_name = f"{first_name} {last_name_1} {last_name_2}"
+            person_name = f"{first_name} {last_name_1} {last_name_2}"
         
         # Create queue for combinations
         combinations_queue = Queue()
