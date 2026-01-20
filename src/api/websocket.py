@@ -44,9 +44,10 @@ def handle_subscribe_job(data):
             return
         
         # Join room for this job
-        socketio.server.enter_room(request.sid, f'job_{job_id}')
+        room = f'job_{job_id}'
+        socketio.server.enter_room(request.sid, room)
         
-        logger.info(f"Client {request.sid} subscribed to job {job_id}")
+        logger.info(f"Client {request.sid} subscribed to job {job_id} (room: {room})")
         emit('subscribed', {'job_id': job_id, 'status': job.status.value})
     
     except Exception as e:
@@ -78,9 +79,12 @@ def emit_progress_update(job_id: str, progress_data: dict):
         progress_data: Progress data dictionary
     """
     try:
-        socketio.emit('progress_update', progress_data, room=f'job_{job_id}')
+        room = f'job_{job_id}'
+        logger.debug(f"Emitting progress update for job {job_id} to room {room}")
+        socketio.emit('progress_update', progress_data, room=room)
+        logger.debug(f"Progress update emitted successfully for job {job_id}")
     except Exception as e:
-        logger.error(f"Error emitting progress update: {e}")
+        logger.error(f"Error emitting progress update for job {job_id}: {e}", exc_info=True)
 
 
 def emit_job_complete(job_id: str, result_data=None):

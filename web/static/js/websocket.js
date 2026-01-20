@@ -59,6 +59,10 @@ class WebSocketClient {
             this.socket.on('subscribed', (data) => {
                 console.log('Subscribed to job:', data);
             });
+            
+            this.socket.on('error', (data) => {
+                console.error('WebSocket subscription error:', data);
+            });
 
             this.socket.on('progress_update', (data) => {
                 console.log('Progress update:', data);

@@ -622,6 +622,7 @@ class CURPApp {
         
         // Set up progress handler
         wsClient.onProgress((data) => {
+            console.log(`VPS ${vpsIP} received progress update:`, data);
             const progress = data.progress || data;
             this.updateVPSProgress(vpsIP, progress);
         });
@@ -647,9 +648,17 @@ class CURPApp {
             }
         });
         
-        // Connect and subscribe
+        // Store job ID before connecting so it can be subscribed on connect
+        wsClient.currentJobId = jobId;
+        
+        // Set up connection handler to subscribe once connected
+        wsClient.onConnect(() => {
+            console.log(`VPS ${vpsIP} WebSocket connected, subscribing to job ${jobId}`);
+            wsClient.subscribeToJob(jobId);
+        });
+        
+        // Connect (subscription will happen automatically on connect)
         wsClient.connect();
-        wsClient.subscribeToJob(jobId);
         
         // Store client
         this.vpsClients[vpsIP] = wsClient;
