@@ -22,7 +22,7 @@ class BrowserAutomation:
     
     def __init__(self, headless: bool = False, min_delay: float = 2.0, 
                  max_delay: float = 5.0, pause_every_n: int = 50, 
-                 pause_duration: int = 30):
+                 pause_duration: int = 30, check_cancellation=None):
         """
         Initialize browser automation.
         
@@ -32,12 +32,14 @@ class BrowserAutomation:
             max_delay: Maximum delay between searches (seconds)
             pause_every_n: Pause every N searches
             pause_duration: Duration of pause (seconds)
+            check_cancellation: Optional function to check if job is cancelled
         """
         self.headless = headless
         self.min_delay = min_delay
         self.max_delay = max_delay
         self.pause_every_n = pause_every_n
         self.pause_duration = pause_duration
+        self.check_cancellation = check_cancellation
         
         self.playwright = None
         self.browser: Optional[Browser] = None
@@ -783,13 +785,13 @@ class BrowserAutomation:
             # If clearing fails, continue anyway - form submission will overwrite
             pass
     
-    def _wait_for_search_completion(self, timeout: float = 10.0):
+    def _wait_for_search_completion(self, timeout: float = 5.0):
         """
         Wait for search to complete (results or error modal appear).
         Uses longer timeout to handle slow bot detection responses.
         
         Args:
-            timeout: Maximum time to wait in seconds (default 10.0)
+            timeout: Maximum time to wait in seconds (default 5.0)
         
         Returns:
             True if search completed successfully,
@@ -804,6 +806,11 @@ class BrowserAutomation:
         max_checks = int(timeout / check_interval)  # Maximum number of checks
         
         for i in range(max_checks):
+            # Check for cancellation during wait
+            if self.check_cancellation and self.check_cancellation():
+                logger.info("Job cancelled during search completion wait")
+                return "CANCELLED"
+            
             elapsed = time.time() - start_time
             if elapsed >= timeout:
                 break
@@ -834,6 +841,11 @@ class BrowserAutomation:
         first_check = True
         
         while (time.time() - start_time) < timeout:
+            # Check for cancellation during polling
+            if self.check_cancellation and self.check_cancellation():
+                logger.info("Job cancelled during search completion polling")
+                return "CANCELLED"
+            
             try:
                 # Get page content to check for both result types
                 content = self.page.content()
@@ -1609,7 +1621,12 @@ class BrowserAutomation:
             # Modal usually appears within 1-2 seconds, but we allow up to 10s for slow responses
             # If no result after 10s, we'll reload the page and move to next input
             # Start checking IMMEDIATELY after form submission (no delays)
-            search_completed = self._wait_for_search_completion(timeout=10.0)
+            search_completed = self._wait_for_search_completion(timeout=5.0)
+            
+            # Check if job was cancelled
+            if search_completed == "CANCELLED":
+                logger.info("Job cancelled during search, returning empty result")
+                return ""
             
             # CRITICAL: Check if no-match modal was detected BEFORE doing expensive result checks
             # If modal was detected, skip all the expensive selector checks and go straight to closing

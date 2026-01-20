@@ -90,13 +90,14 @@ class ParallelWorker:
         try:
             # Initialize browser for this worker
             try:
-                browser_automation = BrowserAutomation(
-                    headless=self.headless,
-                    min_delay=self.min_delay,
-                    max_delay=self.max_delay,
-                    pause_every_n=self.pause_every_n,
-                    pause_duration=self.pause_duration
-                )
+                    browser_automation = BrowserAutomation(
+                        headless=self.headless,
+                        min_delay=self.min_delay,
+                        max_delay=self.max_delay,
+                        pause_every_n=self.pause_every_n,
+                        pause_duration=self.pause_duration,
+                        check_cancellation=check_cancellation
+                    )
             except Exception as e:
                 logger.error(f"Worker {worker_id}: Failed to initialize BrowserAutomation: {e}")
                 # Ensure cleanup even if initialization fails
@@ -179,6 +180,12 @@ class ParallelWorker:
                             state=state,
                             year=year
                         )
+                        
+                        # Check if job was cancelled during search (empty content indicates cancellation)
+                        if html_content == "" and check_cancellation and check_cancellation():
+                            logger.info(f"Worker {worker_id}: Job cancelled during search, stopping...")
+                            stop_event.set()
+                            break
                         
                         # Validate result
                         validation_result = self.result_validator.validate_result(html_content, state)
