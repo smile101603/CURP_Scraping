@@ -12,7 +12,9 @@ from pathlib import Path
 from datetime import datetime
 
 # Add src directory to path
-sys.path.insert(0, str(Path(__file__).parent / 'src'))
+src_path = str(Path(__file__).parent / 'src')
+if src_path not in sys.path:
+    sys.path.insert(0, src_path)
 
 # Create necessary directories first
 Path('logs').mkdir(exist_ok=True)
@@ -24,12 +26,41 @@ Path('checkpoints').mkdir(exist_ok=True)
 class WerkzeugErrorFilter(logging.Filter):
     """Filter out noisy Werkzeug errors from bots/scanners."""
     def filter(self, record):
+        message = str(record.getMessage())
+        
         # Suppress "Bad request version" errors (from bots/scanners)
-        if 'Bad request version' in str(record.getMessage()):
+        if 'Bad request version' in message:
             return False
+        
         # Suppress "write() before start response" errors (Werkzeug internal issues)
-        if 'write() before start response' in str(record.getMessage()):
+        if 'write() before start response' in message:
             return False
+        
+        # Suppress common bot/scanner 404 requests (reduce log noise)
+        # These are harmless probes looking for vulnerabilities
+        bot_patterns = [
+            '/cgi-bin/',
+            '/solr/',
+            '/v2/_cata',
+            '/admin/',
+            '/wp-admin/',
+            '/phpmyadmin/',
+            '/.env',
+            '/.git/',
+            '/favicon.ico',  # Common but harmless
+            '/robots.txt',   # Common but harmless
+        ]
+        
+        # Check if this is a 404 request to a known bot pattern
+        if '"GET ' in message or '"POST ' in message:
+            for pattern in bot_patterns:
+                if pattern in message and ('404' in message or ' 404 ' in message):
+                    return False  # Suppress bot/scanner 404 requests
+        
+        # Suppress malformed HTTP version requests (HTTP/I.1 instead of HTTP/1.1)
+        if 'HTTP/I.' in message or 'HTTP/O.' in message:
+            return False
+        
         return True
 
 # Enhanced logging configuration for headless operation
@@ -52,7 +83,8 @@ server_logger = logging.getLogger('server')
 api_logger = logging.getLogger('api')
 
 # Import API app
-from api import app, socketio
+# Note: api module is in src/api/, but src/ is added to sys.path above
+from api import app, socketio  # type: ignore  # noqa: F401
 
 def load_config():
     """Load configuration from settings.json."""
@@ -71,8 +103,8 @@ def log_health_status():
     while True:
         time.sleep(300)  # Every 5 minutes
         try:
-            from api.search_manager import search_manager
-            from api.models import JobStatus
+            from api.search_manager import search_manager  # type: ignore
+            from api.models import JobStatus  # type: ignore
             
             active_jobs = len([j for j in search_manager.jobs.values() 
                              if j.status == JobStatus.RUNNING])

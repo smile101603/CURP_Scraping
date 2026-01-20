@@ -2,14 +2,14 @@
 // VPS API URL - configured for production
 const API_CONFIG = {
     // VPS IP address (primary VPS for frontend connection)
-    baseURL: 'http://84.247.138.193:5000',
     // For local testing, change to: 'http://localhost:5000'
+    baseURL: 'http://localhost:5000',  // Changed to localhost for local testing
     
     // List of all VPS IPs for row-based distribution
     // Frontend will calculate row ranges and send to each VPS
+    // For local testing with single server, use: ['http://localhost:5000']
     vpsIPs: [
-        'http://84.247.138.193:5000',
-        'http://84.247.138.186:5000'
+        'http://localhost:5000'  // Changed to localhost for local testing
     ],
     
     // WebSocket URL (automatically derived from baseURL)

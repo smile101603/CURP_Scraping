@@ -3,6 +3,9 @@ class CURPApp {
     constructor() {
         this.apiBaseURL = API_CONFIG.baseURL;
         this.wsClient = new WebSocketClient(this.apiBaseURL);
+        this.vpsClients = {}; // Track WebSocket clients for each VPS
+        this.vpsJobIds = {}; // Track job IDs for each VPS
+        this.vpsProgress = {}; // Track progress for each VPS
         this.currentJobId = null;
         this.uploadedFile = null;
         this.searchStartTime = null; // Track search start time for time estimation
@@ -30,6 +33,10 @@ class CURPApp {
         this.yearStartInput = document.getElementById('year-start');
         this.yearEndInput = document.getElementById('year-end');
         
+        // Month Range (Optional)
+        this.monthStartInput = document.getElementById('month-start');
+        this.monthEndInput = document.getElementById('month-end');
+        
         // Buttons
         this.startBtn = document.getElementById('start-btn');
         this.stopBtn = document.getElementById('stop-btn');
@@ -37,12 +44,7 @@ class CURPApp {
         
         // Progress
         this.progressSection = document.getElementById('progress-section');
-        this.progressBar = document.getElementById('progress-bar');
-        this.progressPercentage = document.getElementById('progress-percentage');
-        this.currentPerson = document.getElementById('current-person');
-        this.currentCombination = document.getElementById('current-combination');
-        this.matchesFound = document.getElementById('matches-found');
-        this.estimatedTime = document.getElementById('estimated-time');
+        // Progress elements will be created dynamically for each VPS
         
         // Messages
         this.messageDiv = document.getElementById('message');
@@ -101,25 +103,31 @@ class CURPApp {
 
         this.wsClient.onProgress((data) => {
             // Handle nested progress structure
-            if (data.progress) {
-                this.updateProgress(data.progress);
+            const progress = data.progress || data;
+            // Determine which VPS this progress is from using job_id
+            if (data.job_id) {
+                const vpsIP = this.getVPSFromJobId(data.job_id);
+                if (vpsIP) {
+                    this.updateVPSProgress(vpsIP, progress);
+                } else {
+                    // Fallback: update primary VPS if job_id not found
+                    console.warn(`Job ID ${data.job_id} not found in VPS mapping, using primary VPS`);
+                    this.updateVPSProgress(this.apiBaseURL, progress);
+                }
             } else {
-                // Fallback: data might be the progress object directly
-                this.updateProgress(data);
+                // No job_id - update primary VPS
+                this.updateVPSProgress(this.apiBaseURL, progress);
             }
         });
 
         this.wsClient.onComplete((data) => {
-            this.showMessage('Search completed successfully!', 'success');
-            this.startBtn.disabled = false;
-            this.stopBtn.disabled = true;
-            this.downloadBtn.disabled = false;
+            console.log('Primary job completed:', data);
+            this.checkAllJobsComplete();
         });
 
         this.wsClient.onError((data) => {
             this.showMessage(`Error: ${data.error_message}`, 'error');
-            this.startBtn.disabled = false;
-            this.stopBtn.disabled = true;
+            // Don't disable buttons on error - other VPSs might still be running
         });
 
         this.wsClient.connect();
@@ -212,7 +220,7 @@ class CURPApp {
         }
     }
 
-    async startSearchOnVPS(vpsIP, filename, yearStart, yearEnd, startRow, endRow, lastPersonYearStart, lastPersonYearEnd, lastPersonMonthStart, lastPersonMonthEnd) {
+    async startSearchOnVPS(vpsIP, filename, yearStart, yearEnd, startRow, endRow, lastPersonYearStart, lastPersonYearEnd, lastPersonMonthStart, lastPersonMonthEnd, monthStart, monthEnd) {
         try {
             const requestBody = {
                 filename: filename,
@@ -221,6 +229,13 @@ class CURPApp {
                 start_row: startRow,
                 end_row: endRow
             };
+            
+            // Add month range if provided (for testing specific months)
+            if (monthStart !== undefined && monthStart !== null && monthStart !== '' &&
+                monthEnd !== undefined && monthEnd !== null && monthEnd !== '') {
+                requestBody.month_start = parseInt(monthStart);
+                requestBody.month_end = parseInt(monthEnd);
+            }
             
             // Add last person year range if provided (for odd number split)
             if (lastPersonYearStart !== undefined && lastPersonYearEnd !== undefined) {
@@ -273,6 +288,10 @@ class CURPApp {
 
         const yearStart = parseInt(this.yearStartInput.value);
         const yearEnd = parseInt(this.yearEndInput.value);
+        
+        // Get month range (optional)
+        const monthStart = this.monthStartInput.value.trim();
+        const monthEnd = this.monthEndInput.value.trim();
 
         if (!yearStart || !yearEnd) {
             this.showMessage('Please enter valid year range', 'error');
@@ -282,6 +301,27 @@ class CURPApp {
         if (yearStart > yearEnd) {
             this.showMessage('Start year must be less than or equal to end year', 'error');
             return;
+        }
+        
+        // Validate month range if provided
+        if (monthStart || monthEnd) {
+            const monthStartNum = parseInt(monthStart);
+            const monthEndNum = parseInt(monthEnd);
+            
+            if (!monthStart || !monthEnd) {
+                this.showMessage('Please provide both start and end month, or leave both empty', 'error');
+                return;
+            }
+            
+            if (monthStartNum < 1 || monthStartNum > 12 || monthEndNum < 1 || monthEndNum > 12) {
+                this.showMessage('Month range must be between 1 and 12', 'error');
+                return;
+            }
+            
+            if (monthStartNum > monthEndNum) {
+                this.showMessage('Start month must be less than or equal to end month', 'error');
+                return;
+            }
         }
 
         // Upload file
@@ -389,23 +429,21 @@ class CURPApp {
                     range.lastPersonYearStart,
                     range.lastPersonYearEnd,
                     range.lastPersonMonthStart,
-                    range.lastPersonMonthEnd
+                    range.lastPersonMonthEnd,
+                    monthStart,
+                    monthEnd
                 )
             );
             
             const results = await Promise.allSettled(promises);
             
-            // Check results
+            // Check results and create progress sections for each VPS
             const successful = results.filter(r => r.status === 'fulfilled').length;
             const failed = results.filter(r => r.status === 'rejected').length;
             
             if (successful > 0) {
-                // Use first successful job ID for WebSocket subscription
-                const firstSuccess = results.find(r => r.status === 'fulfilled');
-                if (firstSuccess && firstSuccess.value && firstSuccess.value.job_id) {
-                    this.currentJobId = firstSuccess.value.job_id;
-                    this.wsClient.subscribeToJob(this.currentJobId);
-                }
+                // Create progress sections and WebSocket clients for each VPS
+                this.setupVPSProgress(rowRanges, results);
                 
                 if (failed > 0) {
                     this.showMessage(`Started ${successful} job(s), ${failed} failed`, 'warning');
@@ -424,17 +462,6 @@ class CURPApp {
             this.startBtn.disabled = true;
             this.stopBtn.disabled = false;
             this.downloadBtn.disabled = true;
-            
-            // Reset progress
-            this.updateProgress({
-                person_id: 0,
-                person_name: '',
-                combination_index: 0,
-                total_combinations: 0,
-                matches_found: 0,
-                current_combination: null,
-                percentage: 0
-            });
 
         } catch (error) {
             this.showMessage(`Error starting search: ${error.message}`, 'error');
@@ -442,30 +469,214 @@ class CURPApp {
     }
 
     async stopSearch() {
-        if (!this.currentJobId) {
-            return;
+        // Cancel all VPS jobs
+        const cancelPromises = [];
+        
+        for (const [vpsIP, jobId] of Object.entries(this.vpsJobIds)) {
+            cancelPromises.push(
+                fetch(`${vpsIP}/api/cancel/${jobId}`, {
+                    method: 'POST'
+                }).catch(error => {
+                    console.error(`Error cancelling job on ${vpsIP}:`, error);
+                    return { ok: false };
+                })
+            );
+        }
+        
+        // Also cancel primary job if exists
+        if (this.currentJobId) {
+            cancelPromises.push(
+                fetch(`${this.apiBaseURL}/api/cancel/${this.currentJobId}`, {
+                    method: 'POST'
+                }).catch(error => {
+                    console.error(`Error cancelling primary job:`, error);
+                    return { ok: false };
+                })
+            );
         }
 
         try {
-            const response = await fetch(`${this.apiBaseURL}/api/cancel/${this.currentJobId}`, {
-                method: 'POST'
-            });
-
-            const data = await response.json();
-
-            if (response.ok) {
-                this.showMessage('Search cancelled', 'info');
+            const results = await Promise.allSettled(cancelPromises);
+            const successful = results.filter(r => r.status === 'fulfilled' && r.value.ok).length;
+            
+            if (successful > 0) {
+                this.showMessage(`Cancelled ${successful} job(s)`, 'info');
                 this.startBtn.disabled = false;
                 this.stopBtn.disabled = true;
+                
+                // Disconnect all VPS WebSocket clients
+                for (const [vpsIP, wsClient] of Object.entries(this.vpsClients)) {
+                    wsClient.disconnect();
+                }
+                this.vpsClients = {};
+                this.vpsJobIds = {};
             }
         } catch (error) {
             this.showMessage(`Error cancelling search: ${error.message}`, 'error');
         }
     }
 
-    updateProgress(progress) {
+    setupVPSProgress(rowRanges, results) {
+        // Clear existing progress sections
+        this.progressSection.innerHTML = '';
+        
+        // Create progress section for each VPS
+        rowRanges.forEach((range, index) => {
+            const result = results[index];
+            if (result.status === 'fulfilled' && result.value && result.value.job_id) {
+                const vpsIP = range.vpsIP;
+                const jobId = result.value.job_id;
+                
+                // Store job ID for this VPS
+                this.vpsJobIds[vpsIP] = jobId;
+                
+                // Create progress section HTML for this VPS
+                const vpsIndex = index + 1;
+                const vpsName = this.getVPSName(vpsIP);
+                const progressHTML = `
+                    <div class="vps-progress-container" data-vps="${vpsIP}">
+                        <div class="progress-header">
+                            <h3 class="progress-title">Search Progress - ${vpsName}</h3>
+                        </div>
+                        <div class="progress-bar-container">
+                            <div class="progress-bar vps-progress-bar" id="progress-bar-${vpsIndex}">
+                                <span class="progress-percentage" id="progress-percentage-${vpsIndex}">0%</span>
+                            </div>
+                        </div>
+                        <div class="progress-details">
+                            <div class="progress-item">
+                                <div class="progress-item-label">Current Person</div>
+                                <div class="progress-item-value" id="current-person-${vpsIndex}">N/A</div>
+                            </div>
+                            <div class="progress-item">
+                                <div class="progress-item-label">Current Combination</div>
+                                <div class="progress-item-value" id="current-combination-${vpsIndex}">N/A</div>
+                            </div>
+                            <div class="progress-item">
+                                <div class="progress-item-label">Matches Found</div>
+                                <div class="progress-item-value" id="matches-found-${vpsIndex}">0</div>
+                            </div>
+                            <div class="progress-item">
+                                <div class="progress-item-label">Estimated Time Remaining</div>
+                                <div class="progress-item-value" id="estimated-time-${vpsIndex}">Calculating...</div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                
+                this.progressSection.insertAdjacentHTML('beforeend', progressHTML);
+                
+                // Initialize progress tracking for this VPS
+                this.vpsProgress[vpsIP] = {
+                    startTime: Date.now(),
+                    progress: {
+                        person_id: 0,
+                        person_name: '',
+                        combination_index: 0,
+                        total_combinations: 0,
+                        matches_found: 0,
+                        current_combination: null,
+                        percentage: 0
+                    }
+                };
+                
+                // Create WebSocket client for this VPS
+                this.connectVPSWebSocket(vpsIP, jobId);
+            }
+        });
+    }
+    
+    getVPSName(vpsIP) {
+        // Extract VPS identifier from IP
+        const match = vpsIP.match(/(\d+\.\d+\.\d+\.\d+)/);
+        if (match) {
+            const ip = match[1];
+            const parts = ip.split('.');
+            return `VPS ${parts[parts.length - 1]}`;
+        }
+        return vpsIP;
+    }
+    
+    connectVPSWebSocket(vpsIP, jobId) {
+        // Create WebSocket client for this VPS
+        const wsClient = new WebSocketClient(vpsIP);
+        
+        // Set up progress handler
+        wsClient.onProgress((data) => {
+            const progress = data.progress || data;
+            this.updateVPSProgress(vpsIP, progress);
+        });
+        
+        // Set up completion handler
+        wsClient.onComplete((data) => {
+            console.log(`VPS ${vpsIP} job completed:`, data);
+            this.updateVPSProgress(vpsIP, { percentage: 100 });
+            // Mark this VPS as complete
+            if (this.vpsProgress[vpsIP]) {
+                this.vpsProgress[vpsIP].completed = true;
+            }
+            // Check if all jobs are complete
+            this.checkAllJobsComplete();
+        });
+        
+        // Set up error handler
+        wsClient.onError((data) => {
+            console.error(`VPS ${vpsIP} error:`, data);
+            // Mark this VPS as having an error
+            if (this.vpsProgress[vpsIP]) {
+                this.vpsProgress[vpsIP].error = true;
+            }
+        });
+        
+        // Connect and subscribe
+        wsClient.connect();
+        wsClient.subscribeToJob(jobId);
+        
+        // Store client
+        this.vpsClients[vpsIP] = wsClient;
+    }
+    
+    checkAllJobsComplete() {
+        // Check if all VPS jobs are complete
+        const allVPSs = Object.keys(this.vpsProgress);
+        if (allVPSs.length === 0) return;
+        
+        const completed = allVPSs.filter(vpsIP => this.vpsProgress[vpsIP].completed);
+        
+        if (completed.length === allVPSs.length) {
+            // All jobs complete
+            this.showMessage('All searches completed successfully!', 'success');
+            this.startBtn.disabled = false;
+            this.stopBtn.disabled = true;
+            this.downloadBtn.disabled = false;
+        }
+    }
+    
+    getVPSFromJobId(jobId) {
+        // Find which VPS this job ID belongs to
+        for (const [vpsIP, storedJobId] of Object.entries(this.vpsJobIds)) {
+            if (storedJobId === jobId) {
+                return vpsIP;
+            }
+        }
+        return null;
+    }
+    
+    updateVPSProgress(vpsIP, progress) {
         if (!progress) return;
-
+        
+        // Find the VPS index
+        const vpsContainers = this.progressSection.querySelectorAll('.vps-progress-container');
+        let vpsIndex = null;
+        for (let i = 0; i < vpsContainers.length; i++) {
+            if (vpsContainers[i].getAttribute('data-vps') === vpsIP) {
+                vpsIndex = i + 1;
+                break;
+            }
+        }
+        
+        if (!vpsIndex) return; // VPS not found
+        
         // Calculate percentage if not provided
         let percentage = progress.percentage;
         if (percentage === undefined || percentage === null) {
@@ -475,57 +686,90 @@ class CURPApp {
                 percentage = 0;
             }
         }
-
-        this.progressBar.style.width = `${percentage}%`;
-        this.progressPercentage.textContent = `${percentage.toFixed(1)}%`;
-
-        this.currentPerson.textContent = progress.person_name || 'N/A';
         
-        if (progress.current_combination) {
-            const combo = progress.current_combination;
-            this.currentCombination.textContent = 
-                `${combo.day}/${combo.month}/${combo.year} - ${combo.state}`;
-        } else {
-            this.currentCombination.textContent = 'N/A';
+        // Update progress bar
+        const progressBar = document.getElementById(`progress-bar-${vpsIndex}`);
+        const progressPercentage = document.getElementById(`progress-percentage-${vpsIndex}`);
+        if (progressBar && progressPercentage) {
+            progressBar.style.width = `${percentage}%`;
+            progressPercentage.textContent = `${percentage.toFixed(1)}%`;
         }
-
-        this.matchesFound.textContent = progress.matches_found || 0;
-
-        // Estimate time remaining based on actual progress rate
-        if (progress.combination_index > 0 && progress.total_combinations > 0) {
-            // Track start time if not already set
-            if (!this.searchStartTime) {
-                this.searchStartTime = Date.now();
+        
+        // Update current person
+        const currentPerson = document.getElementById(`current-person-${vpsIndex}`);
+        if (currentPerson) {
+            currentPerson.textContent = progress.person_name || 'N/A';
+        }
+        
+        // Update current combination
+        const currentCombination = document.getElementById(`current-combination-${vpsIndex}`);
+        if (currentCombination) {
+            if (progress.current_combination) {
+                const combo = progress.current_combination;
+                currentCombination.textContent = 
+                    `${combo.day}/${combo.month}/${combo.year} - ${combo.state}`;
+            } else {
+                currentCombination.textContent = 'N/A';
             }
-            
-            const remaining = progress.total_combinations - progress.combination_index;
-            
-            // Calculate elapsed time
-            const elapsedMs = Date.now() - this.searchStartTime;
-            const elapsedSeconds = elapsedMs / 1000;
-            
-            // Calculate rate (combinations per second)
-            const rate = progress.combination_index / elapsedSeconds;
-            
-            // Estimate remaining time based on current rate
-            if (rate > 0) {
-                const estimatedSeconds = Math.round(remaining / rate);
-                const hours = Math.floor(estimatedSeconds / 3600);
-                const minutes = Math.floor((estimatedSeconds % 3600) / 60);
-                const seconds = estimatedSeconds % 60;
+        }
+        
+        // Update matches found
+        const matchesFound = document.getElementById(`matches-found-${vpsIndex}`);
+        if (matchesFound) {
+            matchesFound.textContent = progress.matches_found || 0;
+        }
+        
+        // Estimate time remaining
+        const estimatedTime = document.getElementById(`estimated-time-${vpsIndex}`);
+        if (estimatedTime) {
+            if (progress.combination_index > 0 && progress.total_combinations > 0) {
+                // Get or set start time for this VPS
+                if (!this.vpsProgress[vpsIP]) {
+                    this.vpsProgress[vpsIP] = { startTime: Date.now() };
+                }
+                if (!this.vpsProgress[vpsIP].startTime) {
+                    this.vpsProgress[vpsIP].startTime = Date.now();
+                }
                 
-                if (hours > 0) {
-                    this.estimatedTime.textContent = `${hours}h ${minutes}m`;
-                } else if (minutes > 0) {
-                    this.estimatedTime.textContent = `${minutes}m ${seconds}s`;
+                const remaining = progress.total_combinations - progress.combination_index;
+                const elapsedMs = Date.now() - this.vpsProgress[vpsIP].startTime;
+                const elapsedSeconds = elapsedMs / 1000;
+                const rate = progress.combination_index / elapsedSeconds;
+                
+                if (rate > 0) {
+                    const estimatedSeconds = Math.round(remaining / rate);
+                    const hours = Math.floor(estimatedSeconds / 3600);
+                    const minutes = Math.floor((estimatedSeconds % 3600) / 60);
+                    const seconds = estimatedSeconds % 60;
+                    
+                    if (hours > 0) {
+                        estimatedTime.textContent = `${hours}h ${minutes}m`;
+                    } else if (minutes > 0) {
+                        estimatedTime.textContent = `${minutes}m ${seconds}s`;
+                    } else {
+                        estimatedTime.textContent = `${seconds}s`;
+                    }
                 } else {
-                    this.estimatedTime.textContent = `${seconds}s`;
+                    estimatedTime.textContent = 'Calculating...';
                 }
             } else {
-                this.estimatedTime.textContent = 'Calculating...';
+                estimatedTime.textContent = 'Calculating...';
             }
-        } else {
-            this.estimatedTime.textContent = 'Calculating...';
+        }
+        
+        // Store progress
+        if (this.vpsProgress[vpsIP]) {
+            this.vpsProgress[vpsIP].progress = progress;
+        }
+    }
+    
+    updateProgress(progress) {
+        // Legacy method - now delegates to VPS-specific updates
+        // This is kept for backward compatibility
+        if (this.vpsClients && Object.keys(this.vpsClients).length > 0) {
+            // If we have VPS clients, update the first one (for backward compatibility)
+            const firstVPS = Object.keys(this.vpsClients)[0];
+            this.updateVPSProgress(firstVPS, progress);
         }
     }
 

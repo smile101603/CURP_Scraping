@@ -243,6 +243,20 @@ input[type="file"] {
     display: block;
 }
 
+/* VPS Progress Containers */
+.vps-progress-container {
+    margin-bottom: 30px;
+    padding: 20px;
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    border-left: 4px solid #667eea;
+}
+
+.vps-progress-container:last-child {
+    margin-bottom: 0;
+}
+
 .progress-header {
     display: flex;
     justify-content: space-between;

@@ -42,11 +42,23 @@
         <div class="year-range">
             <div class="form-group">
                 <label for="year-start">Start Year</label>
-                <input type="number" id="year-start" min="1900" max="2100" value="1970" required>
+                <input type="number" id="year-start" min="1900" max="2100" value="1977" required>
             </div>
             <div class="form-group">
                 <label for="year-end">End Year</label>
-                <input type="number" id="year-end" min="1900" max="2100" value="1980" required>
+                <input type="number" id="year-end" min="1900" max="2100" value="1977" required>
+            </div>
+        </div>
+
+        <!-- Month Range Input (Optional - for testing specific months) -->
+        <div class="month-range" style="margin-top: 15px;">
+            <div class="form-group">
+                <label for="month-start">Start Month (Optional)</label>
+                <input type="number" id="month-start" min="1" max="12" placeholder="1" title="Leave empty to test all months">
+            </div>
+            <div class="form-group">
+                <label for="month-end">End Month (Optional)</label>
+                <input type="number" id="month-end" min="1" max="12" placeholder="12" title="Leave empty to test all months">
             </div>
         </div>
 
@@ -59,32 +71,7 @@
 
         <!-- Progress Dashboard -->
         <div id="progress-section" class="progress-section">
-            <div class="progress-header">
-                <h3 class="progress-title">Search Progress</h3>
-            </div>
-            <div class="progress-bar-container">
-                <div id="progress-bar" class="progress-bar">
-                    <span id="progress-percentage">0%</span>
-                </div>
-            </div>
-            <div class="progress-details">
-                <div class="progress-item">
-                    <div class="progress-item-label">Current Person</div>
-                    <div id="current-person" class="progress-item-value">N/A</div>
-                </div>
-                <div class="progress-item">
-                    <div class="progress-item-label">Current Combination</div>
-                    <div id="current-combination" class="progress-item-value">N/A</div>
-                </div>
-                <div class="progress-item">
-                    <div class="progress-item-label">Matches Found</div>
-                    <div id="matches-found" class="progress-item-value">0</div>
-                </div>
-                <div class="progress-item">
-                    <div class="progress-item-label">Estimated Time Remaining</div>
-                    <div id="estimated-time" class="progress-item-value">Calculating...</div>
-                </div>
-            </div>
+            <!-- VPS Progress Containers will be dynamically created here -->
         </div>
     </div>
 

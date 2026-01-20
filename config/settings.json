@@ -7,13 +7,13 @@
     "min_seconds": 0.5,
     "max_seconds": 1.0
   },
-  "pause_every_n": 75,
-  "pause_duration": 15,
+  "pause_every_n": 6,
+  "pause_duration": 1,
   "browser": {
     "headless": true
   },
-  "num_workers": 5,
-  "output_dir": "./data/results",
+  "num_workers": 1,
+  "output_dir": "./web/Result",
   "input_dir": "./data",
   "checkpoint_dir": "./checkpoints",
   "vps": {

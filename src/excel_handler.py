@@ -11,7 +11,7 @@ from typing import List, Dict, Optional
 class ExcelHandler:
     """Handle Excel file operations for CURP automation."""
     
-    def __init__(self, input_dir: str = "./data", output_dir: str = "./data/results"):
+    def __init__(self, input_dir: str = "./data", output_dir: str = "./web/Result"):
         """
         Initialize Excel handler.
         

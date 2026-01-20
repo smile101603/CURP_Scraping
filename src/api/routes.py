@@ -248,7 +248,7 @@ def upload_file():
         # If file exists, add timestamp
         if file_path.exists():
             from datetime import datetime
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            timestamp = datetime.now().strftime("%Y-%m-%d-%H-%M")
             name, ext = os.path.splitext(filename)
             filename = f"{name}_{timestamp}{ext}"
             file_path = UPLOAD_FOLDER / filename
@@ -366,6 +366,36 @@ def start_search():
                 logger.error(f"{error_msg}: last_person_year_start={last_person_year_start}, last_person_year_end={last_person_year_end}")
                 return jsonify({'error': error_msg}), 400
         
+        # Get optional month range (for testing specific months - applies to all persons)
+        month_start = data.get('month_start')
+        month_end = data.get('month_end')
+        
+        # Validate month range if provided
+        if month_start is not None or month_end is not None:
+            if month_start is None or month_end is None:
+                error_msg = 'Both month_start and month_end must be provided together'
+                logger.error(f"{error_msg}: month_start={month_start}, month_end={month_end}")
+                return jsonify({'error': error_msg}), 400
+            try:
+                month_start = int(month_start)
+                month_end = int(month_end)
+            except (ValueError, TypeError) as e:
+                error_msg = 'month_start and month_end must be integers'
+                logger.error(f"{error_msg}: month_start={month_start}, month_end={month_end}, error={e}")
+                return jsonify({'error': error_msg}), 400
+            if month_start < 1 or month_start > 12:
+                error_msg = 'month_start must be between 1 and 12'
+                logger.error(f"{error_msg}: month_start={month_start}")
+                return jsonify({'error': error_msg}), 400
+            if month_end < 1 or month_end > 12:
+                error_msg = 'month_end must be between 1 and 12'
+                logger.error(f"{error_msg}: month_end={month_end}")
+                return jsonify({'error': error_msg}), 400
+            if month_start > month_end:
+                error_msg = 'month_start must be <= month_end'
+                logger.error(f"{error_msg}: month_start={month_start}, month_end={month_end}")
+                return jsonify({'error': error_msg}), 400
+        
         # Get optional last person month range (for 1-year range split)
         last_person_month_start = data.get('last_person_month_start')
         last_person_month_end = data.get('last_person_month_end')
@@ -396,12 +426,18 @@ def start_search():
                 logger.error(f"{error_msg}: last_person_month_start={last_person_month_start}, last_person_month_end={last_person_month_end}")
                 return jsonify({'error': error_msg}), 400
         
-        # Prepare config overrides with row range and last person year range if provided
+        # Prepare config overrides with row range, month range, and last person year range if provided
         config_overrides = {}
         if start_row is not None and end_row is not None:
             config_overrides['start_row'] = start_row
             config_overrides['end_row'] = end_row
             logger.info(f"Job {job_id}: Starting with row range {start_row}-{end_row}")
+        
+        # Add month range if provided (applies to all persons)
+        if month_start is not None and month_end is not None:
+            config_overrides['month_start'] = month_start
+            config_overrides['month_end'] = month_end
+            logger.info(f"Job {job_id}: Month range override: {month_start}-{month_end} (applies to all persons)")
         
         if last_person_year_start is not None and last_person_year_end is not None:
             config_overrides['last_person_year_start'] = last_person_year_start

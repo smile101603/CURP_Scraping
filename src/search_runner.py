@@ -79,7 +79,7 @@ def run_search(job_id: str, input_file_path: str, year_start: int, year_end: int
         pause_every_n = config.get('pause_every_n', 75)
         pause_duration = config.get('pause_duration', 15)
         headless = config.get('browser', {}).get('headless', False)
-        output_dir = config.get('output_dir', './data/results')
+        output_dir = config.get('output_dir', './web/Result')
         checkpoint_dir = config.get('checkpoint_dir', './checkpoints')
         num_workers = config.get('num_workers', 5)
         
@@ -229,9 +229,19 @@ def run_search(job_id: str, input_file_path: str, year_start: int, year_end: int
             has_last_person_month_override = (last_person_month_start is not None and 
                                              last_person_month_end is not None)
             
-            # Initialize month range (default: all months)
-            person_month_start = 1
-            person_month_end = 12
+            # Initialize month range (default: all months, or use global month range override)
+            # Check for global month range override (applies to all persons)
+            global_month_start = config_overrides.get('month_start')
+            global_month_end = config_overrides.get('month_end')
+            
+            if global_month_start is not None and global_month_end is not None:
+                # Use global month range for all persons
+                person_month_start = global_month_start
+                person_month_end = global_month_end
+            else:
+                # Default: all months
+                person_month_start = 1
+                person_month_end = 12
             
             if is_last_person and has_last_person_override:
                 # Use year range override for last person (odd number split)
@@ -356,18 +366,20 @@ def run_search(job_id: str, input_file_path: str, year_start: int, year_end: int
             
             logger.info(f"Completed person {person_id}: {len(person_matches)} match(es) found")
         
-        # Generate output Excel
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        # Generate output Excel - ALWAYS save to local file
+        timestamp = datetime.now().strftime("%Y-%m-%d-%H-%M")
         output_filename = f"curp_results_{job_id}_{timestamp}.xlsx"
         
-        logger.info(f"Writing results to Excel: {output_filename}")
+        logger.info(f"Writing results to local Excel file: {output_filename}")
         excel_handler.write_results(all_results, summary_data, output_filename)
         
         result_file_path = str(Path(output_dir) / output_filename)
+        logger.info(f"Results saved to local file: {result_file_path}")
         
-        # Write to Google Sheets if enabled
+        # Write to Google Sheets if enabled (in addition to local file)
         sheets_url = None
         if sheets_writer:
+            logger.info("Writing results to Google Sheets (in addition to local file)...")
             try:
                 create_sheet_per_job = sheets_config.get('create_sheet_per_job', True)
                 append_results = sheets_config.get('append_results', True)
@@ -386,6 +398,7 @@ def run_search(job_id: str, input_file_path: str, year_start: int, year_end: int
                     
                     sheets_url = sheets_writer.get_sheet_url(worksheet)
                     logger.info(f"Results written to Google Sheets: {sheets_url}")
+                    logger.info(f"Results saved to BOTH locations: 1) Local Excel: {result_file_path}, 2) Google Sheets: {sheets_url}")
                 else:
                     # Use first sheet or default sheet
                     worksheet = sheets_writer.spreadsheet.sheet1
@@ -395,11 +408,15 @@ def run_search(job_id: str, input_file_path: str, year_start: int, year_end: int
                         sheets_writer.write_results(worksheet, all_results, summary_data, job_id, current_vps_index if vps_enabled else None)
                     sheets_url = sheets_writer.get_sheet_url(worksheet)
                     logger.info(f"Results written to Google Sheets: {sheets_url}")
-                    
+                    logger.info(f"Results saved to BOTH locations: 1) Local Excel: {result_file_path}, 2) Google Sheets: {sheets_url}")
+            
             except Exception as e:
                 logger.error(f"Error writing to Google Sheets: {e}", exc_info=True)
-                # Don't fail the job if Sheets write fails
-                logger.warning("Continuing despite Google Sheets write error")
+                # Don't fail the job if Sheets write fails - local Excel file is already saved
+                logger.warning("Google Sheets write failed, but local Excel file was saved successfully")
+                logger.info(f"Results saved to local file only: {result_file_path}")
+        else:
+            logger.info(f"Google Sheets not enabled. Results saved to local file only: {result_file_path}")
         
         # Update job with result file
         search_manager.set_job_result(job_id, result_file_path)

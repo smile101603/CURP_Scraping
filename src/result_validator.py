@@ -153,8 +153,12 @@ class ResultValidator:
         # But we need to make sure we don't have results table at the same time
         
         # Check for results table indicators first (more reliable)
+        # Check for both CSS selector format and HTML attribute format
         has_results = (
             'dwnldLnk' in html_content or 
+            '#dwnldLnk' in html_content or
+            'id="dwnldLnk"' in html_content or
+            'id=\'dwnldLnk\'' in html_content or
             'Descarga del CURP' in html_content or 
             'Datos del solicitante' in html_content or
             'panel-body' in html_content
@@ -182,10 +186,12 @@ class ResultValidator:
         # Pattern 1: Exact structure from the website
         # <td style="font-weight: 700; ...">CURP:</td> followed by <td style="text-transform: uppercase;">CURP_VALUE</td>
         curp_patterns = [
-            # Exact match for the actual HTML structure
-            r'<td[^>]*>\s*CURP:\s*</td>\s*<td[^>]*style="[^"]*text-transform:\s*uppercase[^"]*"[^>]*>([A-Z0-9]{18})</td>',
-            # More flexible: CURP: in td, then any td with uppercase style
-            r'CURP:\s*</td>\s*<td[^>]*style="[^"]*text-transform:\s*uppercase[^"]*"[^>]*>([A-Z0-9]{18})</td>',
+            # Exact match for the actual HTML structure (handles semicolon in style)
+            r'<td[^>]*>\s*CURP:\s*</td>\s*<td[^>]*style="[^"]*text-transform:\s*uppercase[^";]*"[^>]*>([A-Z0-9]{18})</td>',
+            # More flexible: CURP: in td, then any td with uppercase style (handles semicolon)
+            r'CURP:\s*</td>\s*<td[^>]*style="[^"]*text-transform:\s*uppercase[^";]*"[^>]*>([A-Z0-9]{18})</td>',
+            # Pattern matching exact structure from user's HTML example
+            r'CURP:\s*</td>\s*<td[^>]*style="text-transform:\s*uppercase;">([A-Z0-9]{18})</td>',
             # Even more flexible: any td with CURP: followed by td with CURP
             r'<td[^>]*>CURP:\s*</td>\s*<td[^>]*>([A-Z0-9]{18})</td>',
             # Pattern with newlines and whitespace (actual HTML structure)
@@ -194,6 +200,8 @@ class ResultValidator:
             r'CURP:.*?</td>\s*<td[^>]*>([A-Z0-9]{18})</td>',
             # Very flexible: find 18-char alphanumeric after "CURP:" text
             r'CURP:[^<]*</td>[^<]*<td[^>]*>([A-Z0-9]{18})</td>',
+            # Most flexible: find CURP: anywhere, then look for 18-char pattern in next 200 chars
+            r'CURP:[^<]*</td>[^<]*<td[^>]*>([A-Z]{4}\d{6}[HM][A-Z]{5}[0-9A-Z]\d)</td>',
         ]
         
         curp = None

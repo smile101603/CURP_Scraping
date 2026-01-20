@@ -25,7 +25,7 @@ class ParallelWorker:
     def __init__(self, num_workers: int = 5, headless: bool = False,
                  min_delay: float = 1.0, max_delay: float = 2.0,
                  pause_every_n: int = 75, pause_duration: int = 15,
-                 output_dir: str = "./data/results"):
+                 output_dir: str = "./web/Result"):
         """
         Initialize parallel worker.
         
@@ -91,12 +91,12 @@ class ParallelWorker:
             # Initialize browser for this worker
             try:
                 browser_automation = BrowserAutomation(
-                    headless=self.headless,
-                    min_delay=self.min_delay,
-                    max_delay=self.max_delay,
-                    pause_every_n=self.pause_every_n,
-                    pause_duration=self.pause_duration
-                )
+                headless=self.headless,
+                min_delay=self.min_delay,
+                max_delay=self.max_delay,
+                pause_every_n=self.pause_every_n,
+                pause_duration=self.pause_duration
+            )
             except Exception as e:
                 logger.error(f"Worker {worker_id}: Failed to initialize BrowserAutomation: {e}")
                 # Ensure cleanup even if initialization fails
@@ -161,8 +161,8 @@ class ParallelWorker:
                         if combinations_queue.empty():
                             # Give other workers a chance to finish their current items
                             time.sleep(0.5)
-                            if combinations_queue.empty():
-                                break
+                        if combinations_queue.empty():
+                            break
                         continue
                     
                     combo_idx, day, month, state, year = combo_data
@@ -259,6 +259,30 @@ class ParallelWorker:
                             
                             # Immediately save to Excel file
                             self._save_match_immediately(person_id, match_data, all_results)
+                        else:
+                            # Match detected but validation failed - log details
+                            logger.warning(f"Worker {worker_id}: Match detected but validation failed!")
+                            logger.warning(f"  - validation_result['found']: {validation_result.get('found')}")
+                            logger.warning(f"  - validation_result['valid']: {validation_result.get('valid')}")
+                            logger.warning(f"  - validation_result keys: {validation_result.keys()}")
+                            if html_content:
+                                # Check if button id="download" exists in HTML
+                                has_download_button = (
+                                    'id="download"' in html_content or
+                                    'button id="download"' in html_content or
+                                    '<button id="download"' in html_content
+                                )
+                                logger.warning(f"  - button id='download' in HTML: {has_download_button}")
+                                # Save HTML for debugging
+                                debug_dir = Path('./debug_content')
+                                debug_dir.mkdir(exist_ok=True)
+                                debug_file = debug_dir / f"validation_failed_{person_id}_{state}_{day:02d}_{month:02d}_{year}.html"
+                                try:
+                                    with open(debug_file, 'w', encoding='utf-8') as f:
+                                        f.write(html_content)
+                                    logger.warning(f"Worker {worker_id}: Saved HTML to {debug_file} for debugging validation failure")
+                                except Exception as e:
+                                    logger.error(f"Worker {worker_id}: Failed to save debug HTML: {e}")
                         
                         worker_search_count += 1
                         
@@ -365,7 +389,7 @@ class ParallelWorker:
             with self.excel_lock:
                 # Get or create output filename for this person
                 if person_id not in self.output_files:
-                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                    timestamp = datetime.now().strftime("%Y-%m-%d-%H-%M")
                     filename = f"curp_results_person_{person_id}_{timestamp}.xlsx"
                     self.output_files[person_id] = filename
                 

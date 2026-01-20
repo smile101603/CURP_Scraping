@@ -201,7 +201,7 @@ def main():
                 logger.info(f"Completed person {person_id}: {person_matches_count} match(es) found")
             
             # Generate output Excel
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            timestamp = datetime.now().strftime("%Y-%m-%d-%H-%M")
             output_filename = f"curp_results_{timestamp}.xlsx"
             
             logger.info(f"Writing results to Excel: {output_filename}")
