@@ -286,159 +286,162 @@ class CURPApp {
     }
 
     async startSearch() {
-        if (!this.uploadedFile) {
-            this.showMessage('Please upload a file first', 'error');
-            return;
-        }
-
-        // Get and validate year range (required)
-        const yearStart = parseInt(this.yearStartInput.value);
-        const yearEnd = parseInt(this.yearEndInput.value);
-
-        if (!yearStart || !yearEnd || isNaN(yearStart) || isNaN(yearEnd)) {
-            this.showMessage('Please enter valid year range', 'error');
-            return;
-        }
-
-        if (yearStart < 1900 || yearEnd > 2100) {
-            this.showMessage('Year range must be between 1900 and 2100', 'error');
-            return;
-        }
-
-        if (yearStart > yearEnd) {
-            this.showMessage('Start year must be less than or equal to end year', 'error');
-            return;
-        }
-        
-        // Get month range (required - part of date range)
-        let monthStart = this.monthStartInput.value.trim();
-        let monthEnd = this.monthEndInput.value.trim();
-        
-        // Validate month range (required)
-        if (!monthStart || !monthEnd) {
-            this.showMessage('Please provide both start and end month', 'error');
-            return;
-        }
-        
-        const monthStartNum = parseInt(monthStart);
-        const monthEndNum = parseInt(monthEnd);
-        
-        if (isNaN(monthStartNum) || isNaN(monthEndNum)) {
-            this.showMessage('Month values must be valid numbers', 'error');
-            return;
-        }
-        
-        if (monthStartNum < 1 || monthStartNum > 12 || monthEndNum < 1 || monthEndNum > 12) {
-            this.showMessage('Month range must be between 1 and 12', 'error');
-            return;
-        }
-        
-        // Validate date range logic
-        if (yearStartNum === yearEndNum && monthStartNum > monthEndNum) {
-            this.showMessage('When years are the same, start month must be <= end month', 'error');
-            return;
-        }
-        
-        // Store month values for use in VPS requests (already parsed above)
-        const monthStartNumFinal = monthStartNum;
-        const monthEndNumFinal = monthEndNum;
-
-        // Upload file
-        const filename = await this.uploadFile();
-        if (!filename) {
-            return;
-        }
-
-        // Get file row count for VPS distribution
-        const totalRows = await this.getFileRowCount(filename);
-        if (!totalRows || totalRows === 0) {
-            this.showMessage('Could not determine file row count', 'error');
-            return;
-        }
-
-        // Calculate row ranges for each VPS
-        const vpsIPs = API_CONFIG.vpsIPs || [this.apiBaseURL];
-        const isOdd = totalRows % 2 !== 0;
-        const rowRanges = [];
-        
-        // If odd number of persons and exactly 2 VPSs, split last person's year range
-        if (isOdd && vpsIPs.length === 2) {
-            const personsPerVPS = Math.floor(totalRows / 2);
-            const lastPersonIndex = totalRows;
-            const yearRange = yearEnd - yearStart + 1;
-            
-            // Handle edge case: if year range is 1, split by months (6 months each)
-            if (yearRange === 1) {
-                // VPS 1: First half persons + first 6 months of last person's year
-                rowRanges.push({
-                    startRow: 1,
-                    endRow: lastPersonIndex,
-                    vpsIP: vpsIPs[0],
-                    rowCount: lastPersonIndex,
-                    lastPersonYearStart: yearStart,
-                    lastPersonYearEnd: yearEnd,
-                    lastPersonMonthStart: 1,
-                    lastPersonMonthEnd: 6
-                });
-                // VPS 2: Second half persons + last 6 months of last person's year
-                rowRanges.push({
-                    startRow: lastPersonIndex,
-                    endRow: lastPersonIndex,
-                    vpsIP: vpsIPs[1],
-                    rowCount: 1,
-                    lastPersonYearStart: yearStart,
-                    lastPersonYearEnd: yearEnd,
-                    lastPersonMonthStart: 7,
-                    lastPersonMonthEnd: 12
-                });
-                this.showMessage(`Distributing ${totalRows} rows (odd, 1-year range): Split by months (1-6 / 7-12)`, 'info');
-            } else {
-                const midYear = Math.floor(yearRange / 2) + yearStart;
-                
-                // VPS 1: First half persons + first half of last person's year range
-                rowRanges.push({
-                    startRow: 1,
-                    endRow: lastPersonIndex, // Include last person
-                    vpsIP: vpsIPs[0],
-                    rowCount: lastPersonIndex,
-                    lastPersonYearStart: yearStart,
-                    lastPersonYearEnd: midYear - 1
-                });
-                
-                // VPS 2: Second half persons + second half of last person's year range
-                rowRanges.push({
-                    startRow: lastPersonIndex,
-                    endRow: lastPersonIndex, // Only last person
-                    vpsIP: vpsIPs[1],
-                    rowCount: 1,
-                    lastPersonYearStart: midYear,
-                    lastPersonYearEnd: yearEnd
-                });
-                
-                this.showMessage(`Distributing ${totalRows} rows (odd): ${personsPerVPS} persons each + last person split (${yearStart}-${midYear-1} / ${midYear}-${yearEnd})`, 'info');
-            }
-        } else {
-            // Normal distribution (even number or more than 2 VPSs)
-            const rowsPerVPS = Math.ceil(totalRows / vpsIPs.length);
-            
-            for (let i = 0; i < vpsIPs.length; i++) {
-                const startRow = i * rowsPerVPS + 1; // 1-based indexing
-                const endRow = Math.min((i + 1) * rowsPerVPS, totalRows);
-                rowRanges.push({ 
-                    startRow, 
-                    endRow, 
-                    vpsIP: vpsIPs[i],
-                    rowCount: endRow - startRow + 1
-                });
-            }
-            
-            this.showMessage(`Distributing ${totalRows} rows across ${vpsIPs.length} VPS(s)...`, 'info');
-        }
-
-        // Send start request to each VPS with its row range
         try {
-            const promises = rowRanges.map(range => 
-                this.startSearchOnVPS(
+            console.log('Start button clicked');
+            
+            if (!this.uploadedFile) {
+                this.showMessage('Please upload a file first', 'error');
+                return;
+            }
+
+            // Get and validate year range (required)
+            const yearStart = parseInt(this.yearStartInput.value);
+            const yearEnd = parseInt(this.yearEndInput.value);
+            console.log('Year range:', yearStart, yearEnd);
+
+            if (!yearStart || !yearEnd || isNaN(yearStart) || isNaN(yearEnd)) {
+                this.showMessage('Please enter valid year range', 'error');
+                return;
+            }
+
+            if (yearStart < 1900 || yearEnd > 2100) {
+                this.showMessage('Year range must be between 1900 and 2100', 'error');
+                return;
+            }
+
+            if (yearStart > yearEnd) {
+                this.showMessage('Start year must be less than or equal to end year', 'error');
+                return;
+            }
+            
+            // Get month range (required - part of date range)
+            let monthStart = this.monthStartInput.value.trim();
+            let monthEnd = this.monthEndInput.value.trim();
+            console.log('Month range (raw):', monthStart, monthEnd);
+            
+            // Validate month range (required)
+            if (!monthStart || !monthEnd) {
+                this.showMessage('Please provide both start and end month', 'error');
+                return;
+            }
+            
+            const monthStartNum = parseInt(monthStart);
+            const monthEndNum = parseInt(monthEnd);
+            console.log('Month range (parsed):', monthStartNum, monthEndNum);
+            
+            if (isNaN(monthStartNum) || isNaN(monthEndNum)) {
+                this.showMessage('Month values must be valid numbers', 'error');
+                return;
+            }
+            
+            if (monthStartNum < 1 || monthStartNum > 12 || monthEndNum < 1 || monthEndNum > 12) {
+                this.showMessage('Month range must be between 1 and 12', 'error');
+                return;
+            }
+            
+            // Validate date range logic
+            if (yearStart === yearEnd && monthStartNum > monthEndNum) {
+                this.showMessage('When years are the same, start month must be <= end month', 'error');
+                return;
+            }
+
+            // Upload file
+            const filename = await this.uploadFile();
+            if (!filename) {
+                return;
+            }
+
+            // Get file row count for VPS distribution
+            const totalRows = await this.getFileRowCount(filename);
+            if (!totalRows || totalRows === 0) {
+                this.showMessage('Could not determine file row count', 'error');
+                return;
+            }
+
+            // Calculate row ranges for each VPS
+            const vpsIPs = API_CONFIG.vpsIPs || [this.apiBaseURL];
+            const isOdd = totalRows % 2 !== 0;
+            const rowRanges = [];
+            
+            // If odd number of persons and exactly 2 VPSs, split last person's year range
+            if (isOdd && vpsIPs.length === 2) {
+                const personsPerVPS = Math.floor(totalRows / 2);
+                const lastPersonIndex = totalRows;
+                const yearRange = yearEnd - yearStart + 1;
+                
+                // Handle edge case: if year range is 1, split by months (6 months each)
+                if (yearRange === 1) {
+                    // VPS 1: First half persons + first 6 months of last person's year
+                    rowRanges.push({
+                        startRow: 1,
+                        endRow: lastPersonIndex,
+                        vpsIP: vpsIPs[0],
+                        rowCount: lastPersonIndex,
+                        lastPersonYearStart: yearStart,
+                        lastPersonYearEnd: yearEnd,
+                        lastPersonMonthStart: 1,
+                        lastPersonMonthEnd: 6
+                    });
+                    // VPS 2: Second half persons + last 6 months of last person's year
+                    rowRanges.push({
+                        startRow: lastPersonIndex,
+                        endRow: lastPersonIndex,
+                        vpsIP: vpsIPs[1],
+                        rowCount: 1,
+                        lastPersonYearStart: yearStart,
+                        lastPersonYearEnd: yearEnd,
+                        lastPersonMonthStart: 7,
+                        lastPersonMonthEnd: 12
+                    });
+                    this.showMessage(`Distributing ${totalRows} rows (odd, 1-year range): Split by months (1-6 / 7-12)`, 'info');
+                } else {
+                    const midYear = Math.floor(yearRange / 2) + yearStart;
+                    
+                    // VPS 1: First half persons + first half of last person's year range
+                    rowRanges.push({
+                        startRow: 1,
+                        endRow: lastPersonIndex, // Include last person
+                        vpsIP: vpsIPs[0],
+                        rowCount: lastPersonIndex,
+                        lastPersonYearStart: yearStart,
+                        lastPersonYearEnd: midYear - 1
+                    });
+                    
+                    // VPS 2: Second half persons + second half of last person's year range
+                    rowRanges.push({
+                        startRow: lastPersonIndex,
+                        endRow: lastPersonIndex, // Only last person
+                        vpsIP: vpsIPs[1],
+                        rowCount: 1,
+                        lastPersonYearStart: midYear,
+                        lastPersonYearEnd: yearEnd
+                    });
+                    
+                    this.showMessage(`Distributing ${totalRows} rows (odd): ${personsPerVPS} persons each + last person split (${yearStart}-${midYear-1} / ${midYear}-${yearEnd})`, 'info');
+                }
+            } else {
+                // Normal distribution (even number or more than 2 VPSs)
+                const rowsPerVPS = Math.ceil(totalRows / vpsIPs.length);
+                
+                for (let i = 0; i < vpsIPs.length; i++) {
+                    const startRow = i * rowsPerVPS + 1; // 1-based indexing
+                    const endRow = Math.min((i + 1) * rowsPerVPS, totalRows);
+                    rowRanges.push({ 
+                        startRow, 
+                        endRow, 
+                        vpsIP: vpsIPs[i],
+                        rowCount: endRow - startRow + 1
+                    });
+                }
+                
+                this.showMessage(`Distributing ${totalRows} rows across ${vpsIPs.length} VPS(s)...`, 'info');
+            }
+
+            // Send start request to each VPS with its row range
+            console.log('Starting search on VPSs, month range:', monthStartNum, monthEndNum);
+            const promises = rowRanges.map(range => {
+                console.log('Starting search on VPS:', range.vpsIP, 'rows:', range.startRow, '-', range.endRow);
+                return this.startSearchOnVPS(
                     range.vpsIP, 
                     filename, 
                     yearStart, 
@@ -451,8 +454,8 @@ class CURPApp {
                     range.lastPersonMonthEnd,
                     monthStartNum,  // Pass parsed month values
                     monthEndNum     // Pass parsed month values
-                )
-            );
+                );
+            });
             
             const results = await Promise.allSettled(promises);
             
