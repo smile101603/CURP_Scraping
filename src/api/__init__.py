@@ -30,8 +30,12 @@ socketio = SocketIO(
     app,
     cors_allowed_origins="*",
     async_mode=async_mode,
-    logger=True,
-    engineio_logger=True
+    logger=False,  # Disable SocketIO logger to reduce noise
+    engineio_logger=False,  # Disable EngineIO logger to reduce noise
+    ping_timeout=60,  # Increase ping timeout for stability
+    ping_interval=25,  # Match the ping interval from logs
+    max_http_buffer_size=10 * 1024 * 1024,  # 10MB max buffer for file uploads
+    cors_credentials=True  # Allow credentials for CORS
 )
 
 # Import routes and websocket handlers after app initialization

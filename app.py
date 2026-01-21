@@ -36,6 +36,14 @@ class WerkzeugErrorFilter(logging.Filter):
         if 'write() before start response' in message:
             return False
         
+        # Suppress AssertionError from werkzeug serving (WebSocket upgrade issues)
+        if 'AssertionError' in message and 'write() before start' in message:
+            return False
+        
+        # Suppress WebSocket upgrade errors (harmless, already handled by SocketIO)
+        if 'upgrade to websocket' in message.lower() and 'error' in message.lower():
+            return False
+        
         # Suppress common bot/scanner 404 requests (reduce log noise)
         # These are harmless probes looking for vulnerabilities
         bot_patterns = [
@@ -77,6 +85,10 @@ logging.basicConfig(
 # Add filter to suppress noisy errors
 werkzeug_logger = logging.getLogger('werkzeug')
 werkzeug_logger.addFilter(WerkzeugErrorFilter())
+
+# Also suppress AssertionError from werkzeug (WebSocket upgrade issues)
+werkzeug_serving_logger = logging.getLogger('werkzeug.serving')
+werkzeug_serving_logger.addFilter(WerkzeugErrorFilter())
 
 logger = logging.getLogger(__name__)
 server_logger = logging.getLogger('server')
@@ -142,12 +154,18 @@ def main():
         server_logger.info("Health monitoring thread started")
         
         # Run the application
+        # Use use_reloader=False to avoid issues with Werkzeug 3.x and WebSocket upgrades
+        # Use threaded=True to handle concurrent requests properly
         socketio.run(
             app,
             host=host,
             port=port,
             debug=debug,
-            allow_unsafe_werkzeug=True  # For development
+            allow_unsafe_werkzeug=True,  # For development
+            use_reloader=False,  # Disable reloader to avoid WebSocket upgrade issues
+            log_output=False,  # Reduce log noise
+            threaded=True,  # Enable threading for concurrent request handling
+            processes=1  # Single process (threading handles concurrency)
         )
     
     except KeyboardInterrupt:

@@ -155,7 +155,18 @@ input[type="file"] {
     color: #0369a1;
 }
 
-/* Year Range Input */
+/* Date Range Input */
+.date-range {
+    margin-bottom: 30px;
+}
+
+.form-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    margin-bottom: 15px;
+}
+
 .year-range {
     display: grid;
     grid-template-columns: 1fr 1fr;

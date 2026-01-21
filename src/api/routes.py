@@ -45,7 +45,9 @@ def allowed_file(filename):
 
 @app.route('/api/health', methods=['GET'])
 def health_check():
-    """Enhanced health check endpoint with detailed server status."""
+    """Enhanced health check endpoint with detailed server status.
+    This endpoint is designed to respond quickly even during heavy load.
+    """
     try:
         active_jobs = len([j for j in search_manager.jobs.values() 
                           if j.status == JobStatus.RUNNING])
@@ -270,7 +272,9 @@ def upload_file():
 
 @app.route('/api/start', methods=['POST'])
 def start_search():
-    """Start a new search job."""
+    """Start a new search job.
+    This endpoint returns immediately after starting the search in a background thread.
+    """
     try:
         data = request.get_json()
         
@@ -438,6 +442,14 @@ def start_search():
             config_overrides['month_start'] = month_start
             config_overrides['month_end'] = month_end
             logger.info(f"Job {job_id}: Month range override: {month_start}-{month_end} (applies to all persons)")
+        
+        # Add year-specific month boundaries if provided
+        start_year_month = data.get('start_year_month')
+        end_year_month = data.get('end_year_month')
+        if start_year_month is not None and end_year_month is not None:
+            config_overrides['start_year_month'] = start_year_month
+            config_overrides['end_year_month'] = end_year_month
+            logger.info(f"Job {job_id}: Year-specific month boundaries: start_year_month={start_year_month}, end_year_month={end_year_month}")
         
         if last_person_year_start is not None and last_person_year_end is not None:
             config_overrides['last_person_year_start'] = last_person_year_start

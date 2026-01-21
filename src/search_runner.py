@@ -273,9 +273,32 @@ def run_search(job_id: str, input_file_path: str, year_start: int, year_end: int
                     person_year_start = year_start
                     person_year_end = year_end
             
+            # Get year-specific month boundaries if provided
+            start_year_month = config_overrides.get('start_year_month')
+            end_year_month = config_overrides.get('end_year_month')
+            
             # Create combination generator with assigned year range and month range
-            combination_generator = CombinationGenerator(person_year_start, person_year_end, 
-                                                       person_month_start, person_month_end)
+            # Use year-specific boundaries if provided, otherwise use uniform month range
+            if start_year_month is not None and end_year_month is not None:
+                # Only apply year-specific boundaries if they match the person's year range
+                if person_year_start == year_start and person_year_end == year_end:
+                    combination_generator = CombinationGenerator(
+                        person_year_start, person_year_end,
+                        person_month_start, person_month_end,
+                        start_year_month=start_year_month,
+                        end_year_month=end_year_month
+                    )
+                else:
+                    # For VPS-distributed ranges, use uniform month range
+                    combination_generator = CombinationGenerator(
+                        person_year_start, person_year_end,
+                        person_month_start, person_month_end
+                    )
+            else:
+                combination_generator = CombinationGenerator(
+                    person_year_start, person_year_end,
+                    person_month_start, person_month_end
+                )
             total_combinations = combination_generator.get_total_count()
             
             logger.info(f"Processing person {person_id}: {person_name}")

@@ -29,13 +29,13 @@ class CURPApp {
         this.fileInfo = document.getElementById('file-info');
         this.fileName = document.getElementById('file-name');
         
-        // Year Range
+        // Date Range (Year + Month)
         this.yearStartInput = document.getElementById('year-start');
         this.yearEndInput = document.getElementById('year-end');
-        
-        // Month Range (Optional)
         this.monthStartInput = document.getElementById('month-start');
         this.monthEndInput = document.getElementById('month-end');
+        this.rangePreview = document.getElementById('range-preview');
+        this.rangeText = document.getElementById('range-text');
         
         // Buttons
         this.startBtn = document.getElementById('start-btn');
@@ -230,16 +230,17 @@ class CURPApp {
                 end_row: endRow
             };
             
-            // Add month range if provided (for testing specific months - applies to all persons)
-            if (monthStart !== undefined && monthStart !== null && monthStart !== '' &&
-                monthEnd !== undefined && monthEnd !== null && monthEnd !== '') {
-                const monthStartNum = parseInt(monthStart);
-                const monthEndNum = parseInt(monthEnd);
-                if (!isNaN(monthStartNum) && !isNaN(monthEndNum)) {
-                    requestBody.month_start = monthStartNum;
-                    requestBody.month_end = monthEndNum;
-                }
-            }
+            // Parse month values if they're strings
+            const monthStartNum = typeof monthStart === 'number' ? monthStart : parseInt(monthStart);
+            const monthEndNum = typeof monthEnd === 'number' ? monthEnd : parseInt(monthEnd);
+            
+            // Add month range (required - part of date range)
+            requestBody.month_start = monthStartNum;
+            requestBody.month_end = monthEndNum;
+            
+            // Add year-specific month boundaries for proper range handling
+            requestBody.start_year_month = monthStartNum;  // Start month for start year
+            requestBody.end_year_month = monthEndNum;      // End month for end year
             
             // Add last person year range if provided (for odd number split)
             if (lastPersonYearStart !== undefined && lastPersonYearEnd !== undefined) {
@@ -309,39 +310,38 @@ class CURPApp {
             return;
         }
         
-        // Get month range (optional - for testing specific months, applies to all persons)
+        // Get month range (required - part of date range)
         let monthStart = this.monthStartInput.value.trim();
         let monthEnd = this.monthEndInput.value.trim();
         
-        // Convert empty strings to undefined for optional parameters
-        if (monthStart === '') monthStart = undefined;
-        if (monthEnd === '') monthEnd = undefined;
-        
-        // Validate month range if provided (both must be provided together)
-        if (monthStart !== undefined || monthEnd !== undefined) {
-            if (monthStart === undefined || monthEnd === undefined) {
-                this.showMessage('Please provide both start and end month, or leave both empty', 'error');
-                return;
-            }
-            
-            const monthStartNum = parseInt(monthStart);
-            const monthEndNum = parseInt(monthEnd);
-            
-            if (isNaN(monthStartNum) || isNaN(monthEndNum)) {
-                this.showMessage('Month values must be valid numbers', 'error');
-                return;
-            }
-            
-            if (monthStartNum < 1 || monthStartNum > 12 || monthEndNum < 1 || monthEndNum > 12) {
-                this.showMessage('Month range must be between 1 and 12', 'error');
-                return;
-            }
-            
-            if (monthStartNum > monthEndNum) {
-                this.showMessage('Start month must be less than or equal to end month', 'error');
-                return;
-            }
+        // Validate month range (required)
+        if (!monthStart || !monthEnd) {
+            this.showMessage('Please provide both start and end month', 'error');
+            return;
         }
+        
+        const monthStartNum = parseInt(monthStart);
+        const monthEndNum = parseInt(monthEnd);
+        
+        if (isNaN(monthStartNum) || isNaN(monthEndNum)) {
+            this.showMessage('Month values must be valid numbers', 'error');
+            return;
+        }
+        
+        if (monthStartNum < 1 || monthStartNum > 12 || monthEndNum < 1 || monthEndNum > 12) {
+            this.showMessage('Month range must be between 1 and 12', 'error');
+            return;
+        }
+        
+        // Validate date range logic
+        if (yearStartNum === yearEndNum && monthStartNum > monthEndNum) {
+            this.showMessage('When years are the same, start month must be <= end month', 'error');
+            return;
+        }
+        
+        // Store month values for use in VPS requests (already parsed above)
+        const monthStartNumFinal = monthStartNum;
+        const monthEndNumFinal = monthEndNum;
 
         // Upload file
         const filename = await this.uploadFile();
@@ -449,8 +449,8 @@ class CURPApp {
                     range.lastPersonYearEnd,
                     range.lastPersonMonthStart,
                     range.lastPersonMonthEnd,
-                    monthStart,
-                    monthEnd
+                    monthStartNum,  // Pass parsed month values
+                    monthEndNum     // Pass parsed month values
                 )
             );
             
@@ -830,6 +830,17 @@ class CURPApp {
         }
     }
 
+
+    updateRangePreview() {
+        if (!this.rangeText) return;
+        
+        const yearStart = this.yearStartInput.value || '1977';
+        const yearEnd = this.yearEndInput.value || '1988';
+        const monthStart = this.monthStartInput.value || '1';
+        const monthEnd = this.monthEndInput.value || '4';
+        
+        this.rangeText.textContent = `${yearStart}.${monthStart} - ${yearEnd}.${monthEnd}`;
+    }
 
     showMessage(text, type) {
         this.messageDiv.textContent = text;

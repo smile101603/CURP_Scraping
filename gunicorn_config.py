@@ -9,11 +9,13 @@ bind = "0.0.0.0:5000"
 backlog = 2048
 
 # Worker processes
-workers = multiprocessing.cpu_count() * 2 + 1
+# Use fewer workers for better stability with Playwright
+workers = min(multiprocessing.cpu_count() + 1, 4)  # Max 4 workers
 worker_class = 'eventlet'  # Required for WebSocket support
 worker_connections = 1000
-timeout = 120
+timeout = 300  # Increased timeout for long-running searches
 keepalive = 5
+graceful_timeout = 30  # Graceful shutdown timeout
 
 # Logging
 accesslog = 'logs/gunicorn_access.log'
