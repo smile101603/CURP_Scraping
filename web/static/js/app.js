@@ -9,6 +9,8 @@ class CURPApp {
         this.currentJobId = null;
         this.uploadedFile = null;
         this.searchStartTime = null; // Track search start time for time estimation
+        this.resultFiles = []; // Store result file paths when jobs complete
+        this.pollingIntervals = {}; // Store polling intervals for each VPS
         
         this.initializeElements();
         this.initializeEventListeners();
@@ -491,6 +493,11 @@ class CURPApp {
     }
 
     async stopSearch() {
+        // Stop all polling intervals
+        Object.keys(this.pollingIntervals).forEach(vpsIP => {
+            this.stopPollingJobStatus(vpsIP);
+        });
+        
         // Cancel all VPS jobs
         const cancelPromises = [];
         
@@ -633,10 +640,21 @@ class CURPApp {
         // Set up completion handler
         wsClient.onComplete((data) => {
             console.log(`VPS ${vpsIP} job completed:`, data);
+            
+            // Stop polling since we got completion via WebSocket
+            this.stopPollingJobStatus(vpsIP);
+            
             this.updateVPSProgress(vpsIP, { percentage: 100 });
-            // Mark this VPS as complete
+            // Mark this VPS as complete and store completion data
             if (this.vpsProgress[vpsIP]) {
                 this.vpsProgress[vpsIP].completed = true;
+                this.vpsProgress[vpsIP].completedAt = Date.now();
+                this.vpsProgress[vpsIP].completionData = {
+                    job_id: data.job_id,
+                    result_file_path: data.result_file_path,
+                    sheets_url: data.sheets_url
+                };
+                console.log(`VPS ${vpsIP} marked as completed with data:`, this.vpsProgress[vpsIP].completionData);
             }
             // Check if all jobs are complete
             this.checkAllJobsComplete();
@@ -648,7 +666,10 @@ class CURPApp {
             // Mark this VPS as having an error
             if (this.vpsProgress[vpsIP]) {
                 this.vpsProgress[vpsIP].error = true;
+                this.vpsProgress[vpsIP].errorMessage = data.error_message || 'Unknown error';
             }
+            // Start polling as fallback if WebSocket fails
+            this.startPollingJobStatus(vpsIP, jobId);
         });
         
         // Store job ID before connecting so it can be subscribed on connect
@@ -658,6 +679,14 @@ class CURPApp {
         wsClient.onConnect(() => {
             console.log(`VPS ${vpsIP} WebSocket connected, subscribing to job ${jobId}`);
             wsClient.subscribeToJob(jobId);
+            
+            // Set up error handler for subscription failures
+            wsClient.socket.on('error', (errorData) => {
+                if (errorData && errorData.message && errorData.message.includes('Job not found')) {
+                    console.warn(`VPS ${vpsIP}: Subscription failed, starting polling fallback`);
+                    this.startPollingJobStatus(vpsIP, jobId);
+                }
+            });
         });
         
         // Connect (subscription will happen automatically on connect)
@@ -665,22 +694,139 @@ class CURPApp {
         
         // Store client
         this.vpsClients[vpsIP] = wsClient;
+        
+        // Start polling as backup (will stop when WebSocket receives completion)
+        this.startPollingJobStatus(vpsIP, jobId);
+    }
+    
+    startPollingJobStatus(vpsIP, jobId) {
+        // Stop any existing polling for this VPS
+        if (this.pollingIntervals[vpsIP]) {
+            clearInterval(this.pollingIntervals[vpsIP]);
+        }
+        
+        // Poll job status every 5 seconds as fallback
+        console.log(`Starting polling fallback for VPS ${vpsIP}, job ${jobId}`);
+        this.pollingIntervals[vpsIP] = setInterval(async () => {
+            try {
+                const response = await fetch(`${vpsIP}/api/status/${jobId}`);
+                if (response.ok) {
+                    const data = await response.json();
+                    console.log(`Polling: VPS ${vpsIP} job ${jobId} status:`, data.status);
+                    
+                    // Update progress if available
+                    if (data.progress) {
+                        this.updateVPSProgress(vpsIP, data.progress);
+                    }
+                    
+                    // Check if job is completed
+                    if (data.status === 'completed') {
+                        console.log(`Polling detected completion for VPS ${vpsIP}`);
+                        clearInterval(this.pollingIntervals[vpsIP]);
+                        delete this.pollingIntervals[vpsIP];
+                        
+                        // Mark as complete
+                        if (this.vpsProgress[vpsIP]) {
+                            this.vpsProgress[vpsIP].completed = true;
+                            this.vpsProgress[vpsIP].completedAt = Date.now();
+                            this.vpsProgress[vpsIP].completionData = {
+                                job_id: jobId,
+                                result_file_path: data.result_file_path,
+                                sheets_url: data.sheets_url
+                            };
+                        }
+                        
+                        // Update progress to 100%
+                        this.updateVPSProgress(vpsIP, { percentage: 100 });
+                        
+                        // Check if all jobs are complete
+                        this.checkAllJobsComplete();
+                    } else if (data.status === 'failed' || data.status === 'cancelled') {
+                        console.log(`Polling detected ${data.status} for VPS ${vpsIP}`);
+                        clearInterval(this.pollingIntervals[vpsIP]);
+                        delete this.pollingIntervals[vpsIP];
+                        
+                        if (this.vpsProgress[vpsIP]) {
+                            this.vpsProgress[vpsIP].error = true;
+                            this.vpsProgress[vpsIP].errorMessage = data.error_message || `Job ${data.status}`;
+                        }
+                    }
+                }
+            } catch (error) {
+                console.error(`Polling error for VPS ${vpsIP}:`, error);
+            }
+        }, 5000); // Poll every 5 seconds
+    }
+    
+    stopPollingJobStatus(vpsIP) {
+        if (this.pollingIntervals[vpsIP]) {
+            clearInterval(this.pollingIntervals[vpsIP]);
+            delete this.pollingIntervals[vpsIP];
+            console.log(`Stopped polling for VPS ${vpsIP}`);
+        }
     }
     
     checkAllJobsComplete() {
         // Check if all VPS jobs are complete
         const allVPSs = Object.keys(this.vpsProgress);
-        if (allVPSs.length === 0) return;
+        if (allVPSs.length === 0) {
+            console.log('checkAllJobsComplete: No VPSs to check');
+            return;
+        }
         
-        const completed = allVPSs.filter(vpsIP => this.vpsProgress[vpsIP].completed);
+        const completed = allVPSs.filter(vpsIP => this.vpsProgress[vpsIP] && this.vpsProgress[vpsIP].completed);
+        const totalMatches = allVPSs.reduce((sum, vpsIP) => {
+            const matches = this.vpsProgress[vpsIP]?.progress?.matches_found || 0;
+            return sum + matches;
+        }, 0);
+        
+        console.log(`checkAllJobsComplete: ${completed.length}/${allVPSs.length} VPSs completed, total matches: ${totalMatches}`);
         
         if (completed.length === allVPSs.length) {
             // All jobs complete
-            this.showMessage('All searches completed successfully!', 'success');
+            console.log('All VPS jobs completed!');
+            
+            // Build completion message with details
+            let completionMessage = `All searches completed successfully!`;
+            if (totalMatches > 0) {
+                completionMessage += ` Found ${totalMatches} total match(es).`;
+            }
+            
+            // Check if we have result file paths
+            const resultFiles = completed
+                .map(vpsIP => this.vpsProgress[vpsIP]?.completionData?.result_file_path)
+                .filter(Boolean);
+            
+            if (resultFiles.length > 0) {
+                completionMessage += ` Results saved to ${resultFiles.length} file(s).`;
+            }
+            
+            this.showMessage(completionMessage, 'success');
             this.startBtn.disabled = false;
             this.stopBtn.disabled = true;
             this.downloadBtn.disabled = false;
+            
+            // Store result files for download
+            this.resultFiles = resultFiles;
+            
+            // Update progress bars to show completion visually
+            allVPSs.forEach(vpsIP => {
+                const vpsIndex = this.getVPSIndex(vpsIP);
+                if (vpsIndex !== -1) {
+                    const progressBar = document.getElementById(`progress-bar-${vpsIndex}`);
+                    if (progressBar) {
+                        progressBar.style.background = 'linear-gradient(90deg, #10b981 0%, #059669 100%)';
+                        progressBar.textContent = '100% ✓';
+                    }
+                }
+            });
         }
+    }
+    
+    getVPSIndex(vpsIP) {
+        // Find the index of this VPS in the progress containers
+        const allVPSs = Object.keys(this.vpsProgress);
+        return allVPSs.indexOf(vpsIP);
     }
     
     getVPSFromJobId(jobId) {
@@ -791,6 +937,16 @@ class CURPApp {
         // Store progress
         if (this.vpsProgress[vpsIP]) {
             this.vpsProgress[vpsIP].progress = progress;
+            
+            // Fallback completion detection: if progress reaches 100% but not marked as complete
+            const percentage = progress.percentage || 0;
+            if (percentage >= 100 && !this.vpsProgress[vpsIP].completed) {
+                console.log(`Fallback: VPS ${vpsIP} reached 100% completion`);
+                this.vpsProgress[vpsIP].completed = true;
+                this.vpsProgress[vpsIP].completedAt = Date.now();
+                // Check if all jobs are complete
+                this.checkAllJobsComplete();
+            }
         }
     }
     

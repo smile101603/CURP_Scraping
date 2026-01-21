@@ -115,6 +115,19 @@ class WebSocketClient {
 
         this.currentJobId = jobId;
         this.socket.emit('subscribe_job', { job_id: jobId });
+        
+        // Listen for subscription errors
+        this.socket.once('error', (errorData) => {
+            if (errorData && errorData.message) {
+                console.error(`Subscription error for job ${jobId}:`, errorData.message);
+                // Emit custom event for subscription failure
+                if (typeof window !== 'undefined' && window.dispatchEvent) {
+                    window.dispatchEvent(new CustomEvent('websocket_subscription_failed', {
+                        detail: { jobId, error: errorData.message }
+                    }));
+                }
+            }
+        });
     }
 
     unsubscribeFromJob(jobId) {
