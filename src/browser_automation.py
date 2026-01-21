@@ -129,7 +129,7 @@ class BrowserAutomation:
                 
                 # Now try to start Playwright normally
                 logger.debug("Attempting to start Playwright...")
-        self.playwright = sync_playwright().start()
+                self.playwright = sync_playwright().start()
                 logger.info("Playwright started successfully")
         except Exception as e:
             error_msg = str(e).lower()
@@ -173,35 +173,37 @@ class BrowserAutomation:
         retry_delay = 3
         
         for attempt in range(max_retries):
-        try:
-            # Use 'load' instead of 'networkidle' for faster loading
-                    # Increase timeout to 90 seconds
+            try:
+                # Use 'load' instead of 'networkidle' for faster loading
+                # Increase timeout to 90 seconds
                 self.page.goto(self.url, wait_until='load', timeout=90000)
                 logger.debug("[DELAY] Page load wait: 2.0s")
                 time.sleep(2.0)  # Page load wait
-            
-            # Click on "Datos Personales" tab to access the form
-            try:
-                # Wait for the tab to be available
-                self.page.wait_for_selector('a[href="#tab-02"]', timeout=15000)
-                # Click the "Datos Personales" tab
-                self.page.click('a[href="#tab-02"]')
+                
+                # Click on "Datos Personales" tab to access the form
+                try:
+                    # Wait for the tab to be available
+                    self.page.wait_for_selector('a[href="#tab-02"]', timeout=15000)
+                    # Click the "Datos Personales" tab
+                    self.page.click('a[href="#tab-02"]')
                     logger.debug("[DELAY] Tab switch delay: 0.4s")
                     time.sleep(0.4)  # Tab switch delay
-            except Exception as e:
-                print(f"Warning: Could not click 'Datos Personales' tab: {e}")
+                except Exception as e:
+                    print(f"Warning: Could not click 'Datos Personales' tab: {e}")
                     break
-                                        
-        except Exception as e:
-                    if attempt < max_retries - 1:
-                        print(f"Error navigating to {self.url} (attempt {attempt + 1}/{max_retries}): {e}")
-                        print(f"Retrying in {retry_delay} seconds...")
-                        logger.debug(f"[DELAY] Retry delay: {retry_delay}s")
-                        time.sleep(retry_delay)
-                        retry_delay *= 1.5  # Exponential backoff
-                    else:
-                        print(f"Error navigating to {self.url} after {max_retries} attempts: {e}")
-                        raise
+                
+                # If we got here, navigation was successful
+                break
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    print(f"Error navigating to {self.url} (attempt {attempt + 1}/{max_retries}): {e}")
+                    print(f"Retrying in {retry_delay} seconds...")
+                    logger.debug(f"[DELAY] Retry delay: {retry_delay}s")
+                    time.sleep(retry_delay)
+                    retry_delay *= 1.5  # Exponential backoff
+                else:
+                    print(f"Error navigating to {self.url} after {max_retries} attempts: {e}")
+                    raise
             
     def _start_playwright_in_isolated_thread(self):
         """
@@ -711,7 +713,7 @@ class BrowserAutomation:
                     # Check if form fields are available without navigation
                     self.page.wait_for_selector('input#nombre', timeout=2000)
                     return  # Already on form, no need to navigate
-        except:
+                except:
                     # Form not available, need to navigate
                     self.form_ready = False
             
@@ -1511,7 +1513,7 @@ class BrowserAutomation:
                         self._human_like_delay(0.1, 0.15)
                         submit_button.hover()
                         self._human_like_delay(0.1, 0.2)
-                    submit_button.click()
+                        submit_button.click()
                         submitted = True
                         # Reduced delay after clicking - modal detection will handle timing
                         logger.debug("[DELAY] Form submission delay (reduced): 0.1s")
@@ -1539,7 +1541,7 @@ class BrowserAutomation:
                     # Reduced delay after Enter - wait_for_selector will handle timing
                     logger.debug("[DELAY] Form submission delay (Enter key, reduced): 0.1s")
                     time.sleep(0.1)  # Minimal delay - wait_for_selector will handle the rest
-            except Exception as e:
+                except Exception as e:
                     print(f"Warning: All form submission methods failed: {e}")
             
             # Record search start time for timeout detection
@@ -1604,7 +1606,7 @@ class BrowserAutomation:
                                 submit_button.click()
                                 self._human_like_delay(0.3, 0.6)
                             else:
-                self.page.keyboard.press('Enter')
+                                self.page.keyboard.press('Enter')
                                 self._human_like_delay(0.3, 0.6)
                         except Exception as submit_error:
                             logger.debug(f"Submit button click failed, using Enter key: {submit_error}")
@@ -2023,7 +2025,7 @@ class BrowserAutomation:
                 
                     # Step 3: Get page content to check
                     if content is None:
-            content = self.page.content()
+                        content = self.page.content()
                         logger.info(f"Got fresh page content ({len(content)} chars)")
             
                 # Step 4: Check content for button id="download" (PRIMARY indicator in HTML)
@@ -2226,8 +2228,8 @@ class BrowserAutomation:
                     
                     # Apply delay after search (before returning)
                     logger.debug("[DELAY] Random delay after search")
-            self._random_delay()
-            
+                    self._random_delay()
+                    
                     # Pause every N searches (check before returning)
                     if self.search_count % self.pause_every_n == 0 and self.search_count > 0:
                         print(f"Pausing for {self.pause_duration} seconds after {self.search_count} searches...")
