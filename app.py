@@ -155,7 +155,7 @@ def main():
         
         # Run the application
         # Use use_reloader=False to avoid issues with Werkzeug 3.x and WebSocket upgrades
-        # Use threaded=True to handle concurrent requests properly
+        # Flask-SocketIO handles threading internally, so we don't pass threaded parameter
         socketio.run(
             app,
             host=host,
@@ -163,9 +163,7 @@ def main():
             debug=debug,
             allow_unsafe_werkzeug=True,  # For development
             use_reloader=False,  # Disable reloader to avoid WebSocket upgrade issues
-            log_output=False,  # Reduce log noise
-            threaded=True,  # Enable threading for concurrent request handling
-            processes=1  # Single process (threading handles concurrency)
+            log_output=False  # Reduce log noise
         )
     
     except KeyboardInterrupt:
