@@ -633,7 +633,7 @@ class BrowserAutomation:
     
     def _close_modal_if_present(self):
         """Close the error modal if it appears (no match found)."""
-        time.sleep(2.0)
+        time.sleep(3.0)
         if not self.page:
             return
         
