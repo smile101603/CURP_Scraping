@@ -767,9 +767,43 @@ class CURPApp {
         
         // Poll job status every 5 seconds as fallback
         console.log(`Starting polling fallback for VPS ${vpsIP}, job ${jobId}`);
+        let consecutive404Count = 0;
         this.pollingIntervals[vpsIP] = setInterval(async () => {
             try {
                 const response = await fetch(`${vpsIP}/api/status/${jobId}`);
+                
+                // Handle 404 - job not found (expected when job is on different VPS or completed/cleaned up)
+                if (response.status === 404) {
+                    consecutive404Count++;
+                    // If we get 404 and the VPS is already marked as completed, stop polling
+                    if (this.vpsProgress[vpsIP]?.completed) {
+                        console.log(`Polling: VPS ${vpsIP} job ${jobId} not found (404) but already marked as completed, stopping polling`);
+                        clearInterval(this.pollingIntervals[vpsIP]);
+                        delete this.pollingIntervals[vpsIP];
+                        return;
+                    }
+                    // If we get multiple 404s (job might have been cleaned up after completion), check if progress was 100%
+                    if (consecutive404Count >= 3) {
+                        const progress = this.vpsProgress[vpsIP]?.progress;
+                        if (progress && (progress.percentage >= 99.9 || 
+                            (progress.total_combinations > 0 && progress.combination_index >= progress.total_combinations - 1))) {
+                            console.log(`Polling: VPS ${vpsIP} job ${jobId} not found (404) but progress indicates completion, marking as complete`);
+                            if (this.vpsProgress[vpsIP]) {
+                                this.vpsProgress[vpsIP].completed = true;
+                                this.vpsProgress[vpsIP].completedAt = Date.now();
+                            }
+                            clearInterval(this.pollingIntervals[vpsIP]);
+                            delete this.pollingIntervals[vpsIP];
+                            this.checkAllJobsComplete();
+                        }
+                    }
+                    // Don't log 404s as errors - they're expected in multi-VPS scenarios
+                    return;
+                }
+                
+                // Reset 404 counter on successful response
+                consecutive404Count = 0;
+                
                 if (response.ok) {
                     const data = await response.json();
                     console.log(`Polling: VPS ${vpsIP} job ${jobId} status:`, data.status, `progress:`, data.progress?.percentage);
