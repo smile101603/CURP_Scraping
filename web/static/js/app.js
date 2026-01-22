@@ -744,11 +744,11 @@ class CURPApp {
     }
     
     startCompletionCheck() {
-        // Check for completion every 3 seconds
+        // Check for completion every 2 seconds (more frequent)
         this.completionCheckInterval = setInterval(() => {
             this.checkAllJobsComplete();
-        }, 3000);
-        console.log('Started periodic completion check');
+        }, 2000);
+        console.log('Started periodic completion check (every 2 seconds)');
     }
     
     stopCompletionCheck() {
@@ -818,7 +818,12 @@ class CURPApp {
                     const progressPercentage = data.progress?.percentage || 0;
                     const combinationIndex = data.progress?.combination_index || 0;
                     const totalCombinations = data.progress?.total_combinations || 0;
-                    const isCompletedByProgress = progressPercentage >= 99.9 || (totalCombinations > 0 && combinationIndex >= totalCombinations - 1);
+                    // Lower threshold to 98% and check if very close to completion
+                    const isVeryCloseToComplete = totalCombinations > 0 && 
+                        (totalCombinations - combinationIndex) <= Math.max(1, Math.floor(totalCombinations * 0.005));
+                    const isCompletedByProgress = progressPercentage >= 98.0 || 
+                        (totalCombinations > 0 && combinationIndex >= totalCombinations - 1) ||
+                        isVeryCloseToComplete;
                     
                     if (isCompletedByStatus || isCompletedByProgress) {
                         console.log(`Polling detected completion for VPS ${vpsIP} (status: ${data.status}, progress: ${progressPercentage}%)`);
@@ -899,13 +904,21 @@ class CURPApp {
             const combinationIndex = progress.combination_index || 0;
             const totalCombinations = progress.total_combinations || 0;
             
-            const isCompleteByPercentage = percentage >= 99.9;
+            // Lower threshold to 98% to catch near-completion cases
+            const isCompleteByPercentage = percentage >= 98.0;
+            // Also check if we're very close (within 0.5% of completion)
+            const isVeryCloseToComplete = totalCombinations > 0 && 
+                (totalCombinations - combinationIndex) <= Math.max(1, Math.floor(totalCombinations * 0.005));
             const isCompleteByIndex = totalCombinations > 0 && combinationIndex >= totalCombinations - 1;
             
-            if (isCompleteByPercentage || isCompleteByIndex) {
-                console.log(`Auto-marking VPS ${vpsIP} as completed (percentage: ${percentage}%, index: ${combinationIndex}/${totalCombinations})`);
+            if (isCompleteByPercentage || isCompleteByIndex || isVeryCloseToComplete) {
+                console.log(`Auto-marking VPS ${vpsIP} as completed (percentage: ${percentage}%, index: ${combinationIndex}/${totalCombinations}, very close: ${isVeryCloseToComplete})`);
                 vpsData.completed = true;
                 vpsData.completedAt = Date.now();
+                // Ensure percentage is set to 100% for display
+                if (vpsData.progress) {
+                    vpsData.progress.percentage = 100.0;
+                }
                 return true;
             }
             
@@ -1086,13 +1099,21 @@ class CURPApp {
             const totalCombinations = progress.total_combinations || 0;
             
             // Check if completed by percentage OR by combination index
-            const isCompleteByPercentage = percentage >= 99.9; // Use 99.9 to account for rounding
+            // Lower threshold to 98% to catch near-completion cases
+            const isCompleteByPercentage = percentage >= 98.0;
+            // Also check if we're very close (within 0.5% of completion)
+            const isVeryCloseToComplete = totalCombinations > 0 && 
+                (totalCombinations - combinationIndex) <= Math.max(1, Math.floor(totalCombinations * 0.005));
             const isCompleteByIndex = totalCombinations > 0 && combinationIndex >= totalCombinations - 1;
             
-            if ((isCompleteByPercentage || isCompleteByIndex) && !this.vpsProgress[vpsIP].completed) {
-                console.log(`Fallback: VPS ${vpsIP} reached completion (percentage: ${percentage}%, index: ${combinationIndex}/${totalCombinations})`);
+            if ((isCompleteByPercentage || isCompleteByIndex || isVeryCloseToComplete) && !this.vpsProgress[vpsIP].completed) {
+                console.log(`Fallback: VPS ${vpsIP} reached completion (percentage: ${percentage}%, index: ${combinationIndex}/${totalCombinations}, very close: ${isVeryCloseToComplete})`);
                 this.vpsProgress[vpsIP].completed = true;
                 this.vpsProgress[vpsIP].completedAt = Date.now();
+                // Ensure percentage is set to 100% for display
+                if (this.vpsProgress[vpsIP].progress) {
+                    this.vpsProgress[vpsIP].progress.percentage = 100.0;
+                }
                 // Check if all jobs are complete
                 this.checkAllJobsComplete();
             }
