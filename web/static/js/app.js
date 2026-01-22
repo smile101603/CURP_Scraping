@@ -11,6 +11,7 @@ class CURPApp {
         this.searchStartTime = null; // Track search start time for time estimation
         this.resultFiles = []; // Store result file paths when jobs complete
         this.pollingIntervals = {}; // Store polling intervals for each VPS
+        this.completionCheckInterval = null; // Periodic check for completion
         
         this.initializeElements();
         this.initializeEventListeners();
@@ -671,6 +672,7 @@ class CURPApp {
         wsClient.onProgress((data) => {
             console.log(`VPS ${vpsIP} received progress update:`, data);
             const progress = data.progress || data;
+            console.log(`VPS ${vpsIP} progress: ${progress.percentage}%, index: ${progress.combination_index}/${progress.total_combinations}`);
             this.updateVPSProgress(vpsIP, progress);
         });
         
@@ -734,6 +736,27 @@ class CURPApp {
         
         // Start polling as backup (will stop when WebSocket receives completion)
         this.startPollingJobStatus(vpsIP, jobId);
+        
+        // Start periodic completion check if not already started
+        if (!this.completionCheckInterval) {
+            this.startCompletionCheck();
+        }
+    }
+    
+    startCompletionCheck() {
+        // Check for completion every 3 seconds
+        this.completionCheckInterval = setInterval(() => {
+            this.checkAllJobsComplete();
+        }, 3000);
+        console.log('Started periodic completion check');
+    }
+    
+    stopCompletionCheck() {
+        if (this.completionCheckInterval) {
+            clearInterval(this.completionCheckInterval);
+            this.completionCheckInterval = null;
+            console.log('Stopped periodic completion check');
+        }
     }
     
     startPollingJobStatus(vpsIP, jobId) {
@@ -749,16 +772,22 @@ class CURPApp {
                 const response = await fetch(`${vpsIP}/api/status/${jobId}`);
                 if (response.ok) {
                     const data = await response.json();
-                    console.log(`Polling: VPS ${vpsIP} job ${jobId} status:`, data.status);
+                    console.log(`Polling: VPS ${vpsIP} job ${jobId} status:`, data.status, `progress:`, data.progress?.percentage);
                     
                     // Update progress if available
                     if (data.progress) {
                         this.updateVPSProgress(vpsIP, data.progress);
                     }
                     
-                    // Check if job is completed
-                    if (data.status === 'completed') {
-                        console.log(`Polling detected completion for VPS ${vpsIP}`);
+                    // Check if job is completed by status OR by progress
+                    const isCompletedByStatus = data.status === 'completed';
+                    const progressPercentage = data.progress?.percentage || 0;
+                    const combinationIndex = data.progress?.combination_index || 0;
+                    const totalCombinations = data.progress?.total_combinations || 0;
+                    const isCompletedByProgress = progressPercentage >= 99.9 || (totalCombinations > 0 && combinationIndex >= totalCombinations - 1);
+                    
+                    if (isCompletedByStatus || isCompletedByProgress) {
+                        console.log(`Polling detected completion for VPS ${vpsIP} (status: ${data.status}, progress: ${progressPercentage}%)`);
                         clearInterval(this.pollingIntervals[vpsIP]);
                         delete this.pollingIntervals[vpsIP];
                         
@@ -771,10 +800,19 @@ class CURPApp {
                                 result_file_path: data.result_file_path,
                                 sheets_url: data.sheets_url
                             };
+                            // Ensure progress is set to 100%
+                            if (this.vpsProgress[vpsIP].progress) {
+                                this.vpsProgress[vpsIP].progress.percentage = 100.0;
+                                this.vpsProgress[vpsIP].progress.combination_index = totalCombinations > 0 ? totalCombinations - 1 : combinationIndex;
+                            }
                         }
                         
                         // Update progress to 100%
-                        this.updateVPSProgress(vpsIP, { percentage: 100 });
+                        this.updateVPSProgress(vpsIP, { 
+                            percentage: 100.0,
+                            combination_index: totalCombinations > 0 ? totalCombinations - 1 : combinationIndex,
+                            total_combinations: totalCombinations
+                        });
                         
                         // Check if all jobs are complete
                         this.checkAllJobsComplete();
@@ -788,6 +826,8 @@ class CURPApp {
                             this.vpsProgress[vpsIP].errorMessage = data.error_message || `Job ${data.status}`;
                         }
                     }
+                } else {
+                    console.warn(`Polling: VPS ${vpsIP} job ${jobId} returned status ${response.status}`);
                 }
             } catch (error) {
                 console.error(`Polling error for VPS ${vpsIP}:`, error);
@@ -811,13 +851,44 @@ class CURPApp {
             return;
         }
         
-        const completed = allVPSs.filter(vpsIP => this.vpsProgress[vpsIP] && this.vpsProgress[vpsIP].completed);
+        // Check completion status for each VPS (explicit completed flag OR progress >= 100%)
+        const completed = allVPSs.filter(vpsIP => {
+            const vpsData = this.vpsProgress[vpsIP];
+            if (!vpsData) return false;
+            
+            // Check explicit completed flag
+            if (vpsData.completed) return true;
+            
+            // Fallback: check progress percentage
+            const progress = vpsData.progress || {};
+            const percentage = progress.percentage || 0;
+            const combinationIndex = progress.combination_index || 0;
+            const totalCombinations = progress.total_combinations || 0;
+            
+            const isCompleteByPercentage = percentage >= 99.9;
+            const isCompleteByIndex = totalCombinations > 0 && combinationIndex >= totalCombinations - 1;
+            
+            if (isCompleteByPercentage || isCompleteByIndex) {
+                console.log(`Auto-marking VPS ${vpsIP} as completed (percentage: ${percentage}%, index: ${combinationIndex}/${totalCombinations})`);
+                vpsData.completed = true;
+                vpsData.completedAt = Date.now();
+                return true;
+            }
+            
+            return false;
+        });
+        
         const totalMatches = allVPSs.reduce((sum, vpsIP) => {
             const matches = this.vpsProgress[vpsIP]?.progress?.matches_found || 0;
             return sum + matches;
         }, 0);
         
         console.log(`checkAllJobsComplete: ${completed.length}/${allVPSs.length} VPSs completed, total matches: ${totalMatches}`);
+        console.log(`VPS completion status:`, allVPSs.map(vpsIP => ({
+            vpsIP,
+            completed: this.vpsProgress[vpsIP]?.completed || false,
+            percentage: this.vpsProgress[vpsIP]?.progress?.percentage || 0
+        })));
         
         if (completed.length === allVPSs.length) {
             // All jobs complete
@@ -975,10 +1046,17 @@ class CURPApp {
         if (this.vpsProgress[vpsIP]) {
             this.vpsProgress[vpsIP].progress = progress;
             
-            // Fallback completion detection: if progress reaches 100% but not marked as complete
+            // Fallback completion detection: check multiple conditions
             const percentage = progress.percentage || 0;
-            if (percentage >= 100 && !this.vpsProgress[vpsIP].completed) {
-                console.log(`Fallback: VPS ${vpsIP} reached 100% completion`);
+            const combinationIndex = progress.combination_index || 0;
+            const totalCombinations = progress.total_combinations || 0;
+            
+            // Check if completed by percentage OR by combination index
+            const isCompleteByPercentage = percentage >= 99.9; // Use 99.9 to account for rounding
+            const isCompleteByIndex = totalCombinations > 0 && combinationIndex >= totalCombinations - 1;
+            
+            if ((isCompleteByPercentage || isCompleteByIndex) && !this.vpsProgress[vpsIP].completed) {
+                console.log(`Fallback: VPS ${vpsIP} reached completion (percentage: ${percentage}%, index: ${combinationIndex}/${totalCombinations})`);
                 this.vpsProgress[vpsIP].completed = true;
                 this.vpsProgress[vpsIP].completedAt = Date.now();
                 // Check if all jobs are complete
