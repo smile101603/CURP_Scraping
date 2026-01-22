@@ -175,7 +175,7 @@ class BrowserAutomation:
         for attempt in range(max_retries):
             try:
                 # Use 'load' instead of 'networkidle' for faster loading
-                # Increase timeout to 90 seconds
+                    # Increase timeout to 90 seconds
                 self.page.goto(self.url, wait_until='load', timeout=90000)
                 logger.debug("[DELAY] Page load wait: 2.0s")
                 time.sleep(2.0)  # Page load wait
@@ -191,20 +191,20 @@ class BrowserAutomation:
                 except Exception as e:
                     print(f"Warning: Could not click 'Datos Personales' tab: {e}")
                     break
-                
-                # If we got here, navigation was successful
-                break
+                    
+                    # If we got here, navigation was successful
+                    break
             except Exception as e:
-                if attempt < max_retries - 1:
-                    print(f"Error navigating to {self.url} (attempt {attempt + 1}/{max_retries}): {e}")
-                    print(f"Retrying in {retry_delay} seconds...")
-                    logger.debug(f"[DELAY] Retry delay: {retry_delay}s")
-                    time.sleep(retry_delay)
-                    retry_delay *= 1.5  # Exponential backoff
-                else:
-                    print(f"Error navigating to {self.url} after {max_retries} attempts: {e}")
-                    raise
-            
+                    if attempt < max_retries - 1:
+                        print(f"Error navigating to {self.url} (attempt {attempt + 1}/{max_retries}): {e}")
+                        print(f"Retrying in {retry_delay} seconds...")
+                        logger.debug(f"[DELAY] Retry delay: {retry_delay}s")
+                        time.sleep(retry_delay)
+                        retry_delay *= 1.5  # Exponential backoff
+                    else:
+                        print(f"Error navigating to {self.url} after {max_retries} attempts: {e}")
+                        raise
+                
     def _start_playwright_in_isolated_thread(self):
         """
         Start Playwright in an isolated thread with no asyncio context.
@@ -1324,6 +1324,11 @@ class BrowserAutomation:
             # Fill form fields using the actual IDs from the website
             # Skip fields that already have the correct value to optimize performance
             
+            # Check for cancellation before starting form fill
+            if self.check_cancellation and self.check_cancellation():
+                logger.info("Job cancelled before form fill")
+                return ""
+            
             # First name (nombres) - type character by character like a human
             # Total time target: ~1.0-2.45s
             if not self._should_skip_field('nombre', first_name):
@@ -1344,6 +1349,11 @@ class BrowserAutomation:
                 logger.debug(f"Skipping nombre field - already set to '{first_name}'")
                 self._human_like_delay(0.1, 0.15)  # Small transition delay
             
+            # Check for cancellation after first name
+            if self.check_cancellation and self.check_cancellation():
+                logger.info("Job cancelled after first name")
+                return ""
+            
             # First last name (primerApellido) - type character by character
             # Total time target: ~1.15-2.5s
             if not self._should_skip_field('primer_apellido', last_name_1):
@@ -1363,6 +1373,11 @@ class BrowserAutomation:
                 logger.debug(f"Skipping primer_apellido field - already set to '{last_name_1}'")
                 self._human_like_delay(0.1, 0.15)
             
+            # Check for cancellation after first last name
+            if self.check_cancellation and self.check_cancellation():
+                logger.info("Job cancelled after first last name")
+                return ""
+            
             # Second last name (segundoApellido) - type character by character
             # Total time target: ~1.2-2.7s
             if not self._should_skip_field('segundo_apellido', last_name_2):
@@ -1381,6 +1396,11 @@ class BrowserAutomation:
             else:
                 logger.debug(f"Skipping segundo_apellido field - already set to '{last_name_2}'")
                 self._human_like_delay(0.1, 0.15)
+            
+            # Check for cancellation after second last name
+            if self.check_cancellation and self.check_cancellation():
+                logger.info("Job cancelled after second last name")
+                return ""
             
             # Day - format as "01", "02", etc. (humans click dropdown, wait, then select)
             # Total time target: ~1.15-1.85s
@@ -1402,6 +1422,11 @@ class BrowserAutomation:
                 logger.debug(f"Skipping dia field - already set to '{day_str}'")
                 self._human_like_delay(0.1, 0.15)
             
+            # Check for cancellation after day
+            if self.check_cancellation and self.check_cancellation():
+                logger.info("Job cancelled after day")
+                return ""
+            
             # Month - format as "01", "02", etc.
             # Total time target: ~1.35-2.0s
             month_str = str(month).zfill(2)
@@ -1421,6 +1446,11 @@ class BrowserAutomation:
             else:
                 logger.debug(f"Skipping mes field - already set to '{month_str}'")
                 self._human_like_delay(0.1, 0.15)
+            
+            # Check for cancellation after month
+            if self.check_cancellation and self.check_cancellation():
+                logger.info("Job cancelled after month")
+                return ""
             
             # Year (humans type numbers character by character)
             # Total time target: ~0.9-1.45s
@@ -1442,6 +1472,11 @@ class BrowserAutomation:
                 logger.debug(f"Skipping year field - already set to '{year_str}'")
                 self._human_like_delay(0.1, 0.15)
             
+            # Check for cancellation after year
+            if self.check_cancellation and self.check_cancellation():
+                logger.info("Job cancelled after year")
+                return ""
+            
             # Gender (sexo) - values: "H", "M", or "X" (humans click dropdown, wait, then select)
             # Total time target: ~1.35-1.95s
             gender_value = "H" if gender.upper() == "H" else "M"
@@ -1461,6 +1496,11 @@ class BrowserAutomation:
             else:
                 logger.debug(f"Skipping sexo field - already set to '{gender_value}'")
                 self._human_like_delay(0.1, 0.15)
+            
+            # Check for cancellation after gender
+            if self.check_cancellation and self.check_cancellation():
+                logger.info("Job cancelled after gender")
+                return ""
             
             # State (claveEntidad) - convert state name to code (longer pause for state selection)
             # Total time target: ~1.4-2.05s
@@ -1482,8 +1522,19 @@ class BrowserAutomation:
                 logger.debug(f"Skipping estado field - already set to '{state_code}'")
                 self._human_like_delay(0.1, 0.15)
             
+            # Check for cancellation after state
+            if self.check_cancellation and self.check_cancellation():
+                logger.info("Job cancelled after state")
+                return ""
+            
             # Submit form - humans pause before clicking submit button
             self._human_like_delay(0.2, 0.4)  # "Review" the form before submitting
+            
+            # Check for cancellation before submitting
+            if self.check_cancellation and self.check_cancellation():
+                logger.info("Job cancelled before form submission")
+                return ""
+            
             submitted = False
             
             try:
@@ -2229,7 +2280,7 @@ class BrowserAutomation:
                     # Apply delay after search (before returning)
                     logger.debug("[DELAY] Random delay after search")
                     self._random_delay()
-                    
+            
                     # Pause every N searches (check before returning)
                     if self.search_count % self.pause_every_n == 0 and self.search_count > 0:
                         print(f"Pausing for {self.pause_duration} seconds after {self.search_count} searches...")

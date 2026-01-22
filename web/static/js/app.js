@@ -493,6 +493,9 @@ class CURPApp {
     }
 
     async stopSearch() {
+        console.log('Stop button clicked. Current VPS job IDs:', this.vpsJobIds);
+        console.log('Current job ID:', this.currentJobId);
+        
         // Stop all polling intervals
         Object.keys(this.pollingIntervals).forEach(vpsIP => {
             this.stopPollingJobStatus(vpsIP);
@@ -501,10 +504,19 @@ class CURPApp {
         // Cancel all VPS jobs
         const cancelPromises = [];
         
+        // Check if we have any VPS job IDs
+        if (Object.keys(this.vpsJobIds).length === 0) {
+            console.warn('No VPS job IDs found. Checking if jobs are still running...');
+        }
+        
         for (const [vpsIP, jobId] of Object.entries(this.vpsJobIds)) {
+            console.log(`Sending cancel request to ${vpsIP} for job ${jobId}`);
             cancelPromises.push(
                 fetch(`${vpsIP}/api/cancel/${jobId}`, {
                     method: 'POST'
+                }).then(response => {
+                    console.log(`Cancel response from ${vpsIP}:`, response.status, response.statusText);
+                    return response;
                 }).catch(error => {
                     console.error(`Error cancelling job on ${vpsIP}:`, error);
                     return { ok: false };
@@ -514,9 +526,13 @@ class CURPApp {
         
         // Also cancel primary job if exists
         if (this.currentJobId) {
+            console.log(`Sending cancel request to primary API for job ${this.currentJobId}`);
             cancelPromises.push(
                 fetch(`${this.apiBaseURL}/api/cancel/${this.currentJobId}`, {
                     method: 'POST'
+                }).then(response => {
+                    console.log(`Cancel response from primary API:`, response.status, response.statusText);
+                    return response;
                 }).catch(error => {
                     console.error(`Error cancelling primary job:`, error);
                     return { ok: false };
@@ -526,21 +542,42 @@ class CURPApp {
 
         try {
             const results = await Promise.allSettled(cancelPromises);
-            const successful = results.filter(r => r.status === 'fulfilled' && r.value.ok).length;
+            console.log('Cancel results:', results);
             
-            if (successful > 0) {
-                this.showMessage(`Cancelled ${successful} job(s)`, 'info');
+            const successful = results.filter(r => {
+                if (r.status === 'fulfilled') {
+                    const value = r.value;
+                    // Check if it's a Response object or a plain object
+                    if (value && typeof value.ok !== 'undefined') {
+                        return value.ok;
+                    }
+                    // If it's a Response object, check status
+                    if (value && typeof value.status !== 'undefined') {
+                        return value.status >= 200 && value.status < 300;
+                    }
+                }
+                return false;
+            }).length;
+            
+            console.log(`Successfully cancelled ${successful} out of ${results.length} jobs`);
+            
+            if (successful > 0 || results.length > 0) {
+                this.showMessage(`Cancelled ${successful} job(s). Stopping workers...`, 'info');
                 this.startBtn.disabled = false;
                 this.stopBtn.disabled = true;
                 
                 // Disconnect all VPS WebSocket clients
                 for (const [vpsIP, wsClient] of Object.entries(this.vpsClients)) {
+                    console.log(`Disconnecting WebSocket for ${vpsIP}`);
                     wsClient.disconnect();
                 }
                 this.vpsClients = {};
                 this.vpsJobIds = {};
+            } else {
+                this.showMessage('No active jobs found to cancel', 'warning');
             }
         } catch (error) {
+            console.error('Error in stopSearch:', error);
             this.showMessage(`Error cancelling search: ${error.message}`, 'error');
         }
     }

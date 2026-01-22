@@ -550,5 +550,33 @@ class ParallelWorker:
         if remaining_items > 0:
             logger.warning(f"Warning: {remaining_items} items still in queue after processing")
         
+        # Send final progress update to ensure 100% completion
+        final_count = processed_count.get('count', 0)
+        if progress_callback and final_count < total_combinations:
+            # Ensure we send a final update with 100% if all combinations were processed
+            try:
+                # Get the last combination processed (if available)
+                last_combo = None
+                if all_results:
+                    last_result = all_results[-1]
+                    last_combo = {
+                        'day': last_result.get('birth_date', {}).get('day') if isinstance(last_result.get('birth_date'), dict) else None,
+                        'month': last_result.get('birth_date', {}).get('month') if isinstance(last_result.get('birth_date'), dict) else None,
+                        'year': last_result.get('birth_date', {}).get('year') if isinstance(last_result.get('birth_date'), dict) else None,
+                        'state': last_result.get('birth_state')
+                    }
+                
+                # Send final progress update with 100%
+                progress_callback({
+                    'person_id': person_id,
+                    'combination_index': total_combinations - 1,  # Last index (0-based)
+                    'total_combinations': total_combinations,
+                    'matches_found': len([r for r in all_results if r.get('person_id') == person_id]),
+                    'current_combination': last_combo
+                })
+                logger.info(f"Sent final progress update: {total_combinations - 1}/{total_combinations} (100%)")
+            except Exception as e:
+                logger.error(f"Error sending final progress update: {e}")
+        
         logger.info(f"Completed parallel processing for person {person_id}")
 

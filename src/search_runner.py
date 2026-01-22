@@ -344,7 +344,12 @@ def run_search(job_id: str, input_file_path: str, year_start: int, year_end: int
                     
                     # Calculate percentage
                     if job_progress.total_combinations > 0:
-                        job_progress.percentage = (job_progress.combination_index / job_progress.total_combinations) * 100
+                        # Ensure percentage reaches 100% when all combinations are processed
+                        # combination_index is 0-based, so when it reaches total_combinations - 1, we're at 100%
+                        if job_progress.combination_index >= job_progress.total_combinations - 1:
+                            job_progress.percentage = 100.0
+                        else:
+                            job_progress.percentage = (job_progress.combination_index / job_progress.total_combinations) * 100
                     
                     search_manager.update_job_progress(job_id, job_progress)
                     

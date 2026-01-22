@@ -103,7 +103,12 @@ class SearchManager:
                 
                 # Calculate percentage
                 if progress.total_combinations > 0:
-                    progress.percentage = (progress.combination_index / progress.total_combinations) * 100
+                    # Ensure percentage reaches 100% when all combinations are processed
+                    # combination_index is 0-based, so when it reaches total_combinations - 1, we're at 100%
+                    if progress.combination_index >= progress.total_combinations - 1:
+                        progress.percentage = 100.0
+                    else:
+                        progress.percentage = (progress.combination_index / progress.total_combinations) * 100
     
     def set_job_result(self, job_id: str, result_file_path: str):
         """
