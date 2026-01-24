@@ -92,7 +92,16 @@ class CURPApp {
         this.stopBtn.addEventListener('click', () => this.stopSearch());
         
         // Download Button
-        this.downloadBtn.addEventListener('click', () => this.downloadResults());
+        this.downloadBtn.addEventListener('click', () => {
+            console.log('Download button clicked');
+            console.log('Button disabled state:', this.downloadBtn.disabled);
+            if (!this.downloadBtn.disabled) {
+                this.downloadResults();
+            } else {
+                console.warn('Download button is disabled');
+                this.showMessage('Download button is disabled. Please wait for jobs to complete.', 'warning');
+            }
+        });
     }
 
     connectWebSocket() {
@@ -689,10 +698,11 @@ class CURPApp {
                 this.vpsProgress[vpsIP].completed = true;
                 this.vpsProgress[vpsIP].completedAt = Date.now();
                 this.vpsProgress[vpsIP].completionData = {
-                    job_id: data.job_id,
-                    result_file_path: data.result_file_path,
+                    job_id: data.job_id || jobId,
+                    result_file_path: data.result_file_path || data.result_file,
                     sheets_url: data.sheets_url
                 };
+                console.log(`VPS ${vpsIP} completion data stored:`, this.vpsProgress[vpsIP].completionData);
                 console.log(`VPS ${vpsIP} marked as completed with data:`, this.vpsProgress[vpsIP].completionData);
             }
             // Check if all jobs are complete
@@ -1131,24 +1141,63 @@ class CURPApp {
     }
 
     async downloadResults() {
+        console.log('Download button clicked');
+        console.log('Current VPS progress:', this.vpsProgress);
+        console.log('Current job IDs:', this.vpsJobIds);
+        
         // Collect all result files from completed VPSs
         const resultFiles = [];
         const allVPSs = Object.keys(this.vpsProgress);
         
+        console.log(`Checking ${allVPSs.length} VPSs for completed jobs...`);
+        
         for (const vpsIP of allVPSs) {
             const vpsData = this.vpsProgress[vpsIP];
-            if (vpsData && vpsData.completed && vpsData.completionData && vpsData.completionData.result_file_path) {
-                resultFiles.push({
-                    vpsIP: vpsIP,
-                    jobId: vpsData.completionData.job_id,
-                    filePath: vpsData.completionData.result_file_path,
-                    sheetsUrl: vpsData.completionData.sheets_url
-                });
+            console.log(`VPS ${vpsIP} data:`, {
+                completed: vpsData?.completed,
+                completionData: vpsData?.completionData,
+                jobId: this.vpsJobIds[vpsIP]
+            });
+            
+            // Check if VPS is completed
+            if (vpsData && vpsData.completed) {
+                // Try to get job ID from completionData or vpsJobIds
+                const jobId = vpsData.completionData?.job_id || this.vpsJobIds[vpsIP];
+                
+                if (jobId) {
+                    resultFiles.push({
+                        vpsIP: vpsIP,
+                        jobId: jobId,
+                        filePath: vpsData.completionData?.result_file_path || vpsData.completionData?.result_file,
+                        sheetsUrl: vpsData.completionData?.sheets_url
+                    });
+                    console.log(`Added download for VPS ${vpsIP}, job ${jobId}`);
+                } else {
+                    console.warn(`VPS ${vpsIP} is completed but no job ID found`);
+                }
             }
         }
         
         if (resultFiles.length === 0) {
-            // Fallback: try to download from currentJobId if no VPS results found
+            // Fallback: try to download from all job IDs in vpsJobIds
+            console.log('No completion data found, trying job IDs from vpsJobIds...');
+            for (const [vpsIP, jobId] of Object.entries(this.vpsJobIds)) {
+                const vpsData = this.vpsProgress[vpsIP];
+                // Only add if VPS is marked as completed
+                if (vpsData && vpsData.completed) {
+                    resultFiles.push({
+                        vpsIP: vpsIP,
+                        jobId: jobId,
+                        filePath: null,
+                        sheetsUrl: null
+                    });
+                    console.log(`Added fallback download for VPS ${vpsIP}, job ${jobId}`);
+                }
+            }
+        }
+        
+        if (resultFiles.length === 0) {
+            // Last fallback: try to download from currentJobId
             if (this.currentJobId) {
                 console.log('No VPS results found, trying primary job ID:', this.currentJobId);
                 resultFiles.push({
@@ -1158,12 +1207,16 @@ class CURPApp {
                     sheetsUrl: null
                 });
             } else {
-                this.showMessage('No completed jobs found to download', 'error');
+                this.showMessage('No completed jobs found to download. Please wait for jobs to complete.', 'error');
+                console.error('No jobs found to download');
                 return;
             }
         }
         
-        console.log(`Downloading ${resultFiles.length} result file(s)...`);
+        console.log(`Downloading ${resultFiles.length} result file(s)...`, resultFiles);
+        
+        let successCount = 0;
+        let errorCount = 0;
         
         // Download each result file
         for (let i = 0; i < resultFiles.length; i++) {
@@ -1172,12 +1225,18 @@ class CURPApp {
                 const vpsIP = result.vpsIP;
                 const jobId = result.jobId;
                 
-                console.log(`Downloading from ${vpsIP} for job ${jobId}`);
+                console.log(`[${i + 1}/${resultFiles.length}] Downloading from ${vpsIP} for job ${jobId}`);
                 
                 const response = await fetch(`${vpsIP}/api/download/${jobId}`);
                 
                 if (!response.ok) {
-                    const errorData = await response.json().catch(() => ({ error: 'Download failed' }));
+                    const errorText = await response.text();
+                    let errorData;
+                    try {
+                        errorData = JSON.parse(errorText);
+                    } catch {
+                        errorData = { error: errorText || 'Download failed' };
+                    }
                     throw new Error(errorData.error || `Download failed: ${response.status} ${response.statusText}`);
                 }
 
@@ -1198,19 +1257,25 @@ class CURPApp {
                 window.URL.revokeObjectURL(url);
                 document.body.removeChild(a);
                 
+                successCount++;
+                console.log(`Successfully downloaded ${filename}`);
+                
                 // Small delay between downloads to avoid browser blocking
                 if (i < resultFiles.length - 1) {
                     await new Promise(resolve => setTimeout(resolve, 500));
                 }
             } catch (error) {
+                errorCount++;
                 console.error(`Error downloading from ${result.vpsIP}:`, error);
                 this.showMessage(`Download error from ${this.getVPSName(result.vpsIP)}: ${error.message}`, 'error');
                 // Continue with other downloads even if one fails
             }
         }
         
-        if (resultFiles.length > 0) {
-            this.showMessage(`Downloaded ${resultFiles.length} result file(s)`, 'success');
+        if (successCount > 0) {
+            this.showMessage(`Downloaded ${successCount} result file(s)${errorCount > 0 ? ` (${errorCount} failed)` : ''}`, 'success');
+        } else if (errorCount > 0) {
+            this.showMessage(`All downloads failed. Check console for details.`, 'error');
         }
     }
 
