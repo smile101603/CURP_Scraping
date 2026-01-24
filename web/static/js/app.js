@@ -1131,31 +1131,86 @@ class CURPApp {
     }
 
     async downloadResults() {
-        if (!this.currentJobId) {
-            this.showMessage('No job selected', 'error');
-            return;
-        }
-
-        try {
-            const response = await fetch(`${this.apiBaseURL}/api/download/${this.currentJobId}`);
-            
-            if (!response.ok) {
-                throw new Error('Download failed');
+        // Collect all result files from completed VPSs
+        const resultFiles = [];
+        const allVPSs = Object.keys(this.vpsProgress);
+        
+        for (const vpsIP of allVPSs) {
+            const vpsData = this.vpsProgress[vpsIP];
+            if (vpsData && vpsData.completed && vpsData.completionData && vpsData.completionData.result_file_path) {
+                resultFiles.push({
+                    vpsIP: vpsIP,
+                    jobId: vpsData.completionData.job_id,
+                    filePath: vpsData.completionData.result_file_path,
+                    sheetsUrl: vpsData.completionData.sheets_url
+                });
             }
+        }
+        
+        if (resultFiles.length === 0) {
+            // Fallback: try to download from currentJobId if no VPS results found
+            if (this.currentJobId) {
+                console.log('No VPS results found, trying primary job ID:', this.currentJobId);
+                resultFiles.push({
+                    vpsIP: this.apiBaseURL,
+                    jobId: this.currentJobId,
+                    filePath: null,
+                    sheetsUrl: null
+                });
+            } else {
+                this.showMessage('No completed jobs found to download', 'error');
+                return;
+            }
+        }
+        
+        console.log(`Downloading ${resultFiles.length} result file(s)...`);
+        
+        // Download each result file
+        for (let i = 0; i < resultFiles.length; i++) {
+            const result = resultFiles[i];
+            try {
+                const vpsIP = result.vpsIP;
+                const jobId = result.jobId;
+                
+                console.log(`Downloading from ${vpsIP} for job ${jobId}`);
+                
+                const response = await fetch(`${vpsIP}/api/download/${jobId}`);
+                
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({ error: 'Download failed' }));
+                    throw new Error(errorData.error || `Download failed: ${response.status} ${response.statusText}`);
+                }
 
-            const blob = await response.blob();
-            const url = window.URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `curp_results_${this.currentJobId}.xlsx`;
-            document.body.appendChild(a);
-            a.click();
-            window.URL.revokeObjectURL(url);
-            document.body.removeChild(a);
-
-            this.showMessage('Results downloaded', 'success');
-        } catch (error) {
-            this.showMessage(`Download error: ${error.message}`, 'error');
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                
+                // Create filename with VPS identifier if multiple files
+                const vpsName = this.getVPSName(vpsIP);
+                const filename = resultFiles.length > 1 
+                    ? `curp_results_${vpsName}_${jobId}.xlsx`
+                    : `curp_results_${jobId}.xlsx`;
+                
+                a.download = filename;
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                document.body.removeChild(a);
+                
+                // Small delay between downloads to avoid browser blocking
+                if (i < resultFiles.length - 1) {
+                    await new Promise(resolve => setTimeout(resolve, 500));
+                }
+            } catch (error) {
+                console.error(`Error downloading from ${result.vpsIP}:`, error);
+                this.showMessage(`Download error from ${this.getVPSName(result.vpsIP)}: ${error.message}`, 'error');
+                // Continue with other downloads even if one fails
+            }
+        }
+        
+        if (resultFiles.length > 0) {
+            this.showMessage(`Downloaded ${resultFiles.length} result file(s)`, 'success');
         }
     }
 
